@@ -100,3 +100,26 @@ export async function gradeEssay({ idDetail, idSoal, jawabanTeks }) {
 
   return await response.json()
 }
+
+/**
+ * Registrasi pengguna via Backend Admin (Bypass email rate limit & email confirm).
+ */
+export async function registerAdminAPI({ email, password, name, role = 'student' }) {
+  const response = await fetch(`${API_BASE_URL}/auth/register-admin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      password,
+      name,
+      role,
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || 'Gagal mendaftar via backend server.')
+  }
+
+  return await response.json()
+}

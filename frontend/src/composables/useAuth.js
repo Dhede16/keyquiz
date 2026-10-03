@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { supabase } from '@/services/supabase.js'
+import { registerAdminAPI } from '@/services/api.js'
 
 const STORAGE_KEY = 'keyquiz:user'
 
@@ -52,7 +53,7 @@ async function initAuthSession() {
         email: session.user.email,
         name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
         role: profile?.role || session.user.user_metadata?.role || 'student',
-        nim_nip: profile?.nim_nip || session.user.user_metadata?.nim_nip || '',
+        password: profile?.password || session.user.user_metadata?.password || '',
       }
       saveLocalUser(userData)
     }
@@ -75,7 +76,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       email: session.user.email,
       name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
       role: profile?.role || session.user.user_metadata?.role || 'student',
-      nim_nip: profile?.nim_nip || session.user.user_metadata?.nim_nip || '',
+      password: profile?.password || session.user.user_metadata?.password || '',
     }
     saveLocalUser(userData)
   } else if (event === 'SIGNED_OUT') {
@@ -121,7 +122,7 @@ export function useAuth() {
             email: data.user.email,
             name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
             role: profile?.role || role || data.user.user_metadata?.role || 'teacher',
-            nim_nip: profile?.nim_nip || '',
+            password: profile?.password || password || '',
           }
           saveLocalUser(userData)
           return userData
@@ -145,27 +146,52 @@ export function useAuth() {
   /**
    * Registrasi akun baru di Supabase Auth & tabel profiles.
    */
-  async function register({ email, password, name, role = 'student', nim_nip = '' }) {
+  async function register({ email, password, name, role = 'student' }) {
     authLoading.value = true
     try {
       const trimmedEmail = email.trim()
       const displayName = name?.trim() || nameFromEmail(trimmedEmail)
 
-      const { data, error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password,
-        options: {
-          data: {
+      let authUser = null
+
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: trimmedEmail,
+          password,
+          options: {
+            data: {
+              name: displayName,
+              role,
+              password,
+            },
+          },
+        })
+
+        if (error) throw error
+        authUser = data?.user
+      } catch (signUpErr) {
+        const msg = (signUpErr.message || '').toLowerCase()
+        // Jika terkena email rate limit / pembatasan email Supabase, fallback langsung ke backend admin register
+        if (
+          msg.includes('rate limit') ||
+          msg.includes('over_email_send_rate_limit') ||
+          msg.includes('exceeded') ||
+          msg.includes('email')
+        ) {
+          console.warn('[useAuth] Email rate limit terdeteksi, beralih ke Backend Admin registration...')
+          await registerAdminAPI({
+            email: trimmedEmail,
+            password,
             name: displayName,
             role,
-            nim_nip,
-          },
-        },
-      })
+          })
 
-      if (error) throw error
+          // Otomatis login dengan kredensial yang baru dibuat
+          return await login({ email: trimmedEmail, password, role })
+        }
+        throw signUpErr
+      }
 
-      const authUser = data?.user
       if (authUser) {
         // Pastikan record profil terisi (trigger akan handle, tapi upsert memastikan keamanan)
         await supabase.from('profiles').upsert({
@@ -173,7 +199,7 @@ export function useAuth() {
           email: trimmedEmail,
           name: displayName,
           role,
-          nim_nip,
+          password,
         })
 
         const userData = {
@@ -181,7 +207,7 @@ export function useAuth() {
           email: trimmedEmail,
           name: displayName,
           role,
-          nim_nip,
+          password,
         }
         saveLocalUser(userData)
         return userData

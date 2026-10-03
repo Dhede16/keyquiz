@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('teacher', 'student')) DEFAULT 'student',
-    nim_nip TEXT,
+    password TEXT,
     avatar_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -147,13 +147,13 @@ CREATE TABLE IF NOT EXISTS public.detail_jawaban (
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.profiles (id, email, name, role, nim_nip, avatar_url)
+    INSERT INTO public.profiles (id, email, name, role, password, avatar_url)
     VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
         COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
-        NEW.raw_user_meta_data->>'nim_nip',
+        NEW.raw_user_meta_data->>'password',
         NEW.raw_user_meta_data->>'avatar_url'
     );
     RETURN NEW;
@@ -178,6 +178,17 @@ CREATE TRIGGER tr_kelas_updated_at BEFORE UPDATE ON public.kelas FOR EACH ROW EX
 DROP TRIGGER IF EXISTS tr_tugas_updated_at ON public.tugas;
 CREATE TRIGGER tr_tugas_updated_at BEFORE UPDATE ON public.tugas FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Ensure column migration for existing tables
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'nim_nip') THEN
+        ALTER TABLE public.profiles DROP COLUMN nim_nip CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'password') THEN
+        ALTER TABLE public.profiles ADD COLUMN password TEXT;
+    END IF;
+END $$;
+
 -- ==============================================================================
 -- 14. ROW LEVEL SECURITY (RLS) POLICIES
 -- ==============================================================================
@@ -192,48 +203,61 @@ ALTER TABLE public.jawaban_mahasiswa ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detail_jawaban ENABLE ROW LEVEL SECURITY;
 
 -- Allow authenticated users to view profiles
+DROP POLICY IF EXISTS "Public profiles are viewable by authenticated users" ON public.profiles;
 CREATE POLICY "Public profiles are viewable by authenticated users" 
 ON public.profiles FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
 CREATE POLICY "Users can update their own profile" 
 ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
 
 -- Kelas policies
+DROP POLICY IF EXISTS "Anyone authenticated can view classes" ON public.kelas;
 CREATE POLICY "Anyone authenticated can view classes" 
 ON public.kelas FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Teachers can insert classes" ON public.kelas;
 CREATE POLICY "Teachers can insert classes" 
 ON public.kelas FOR INSERT TO authenticated WITH CHECK (auth.uid() = teacher_id);
 
+DROP POLICY IF EXISTS "Teachers can update their own classes" ON public.kelas;
 CREATE POLICY "Teachers can update their own classes" 
 ON public.kelas FOR UPDATE TO authenticated USING (auth.uid() = teacher_id);
 
+DROP POLICY IF EXISTS "Teachers can delete their own classes" ON public.kelas;
 CREATE POLICY "Teachers can delete their own classes" 
 ON public.kelas FOR DELETE TO authenticated USING (auth.uid() = teacher_id);
 
 -- Anggota Kelas policies
+DROP POLICY IF EXISTS "Members can view class membership" ON public.anggota_kelas;
 CREATE POLICY "Members can view class membership" 
 ON public.anggota_kelas FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Students can join class" ON public.anggota_kelas;
 CREATE POLICY "Students can join class" 
 ON public.anggota_kelas FOR INSERT TO authenticated WITH CHECK (auth.uid() = student_id);
 
+DROP POLICY IF EXISTS "Students or teachers can leave/remove from class" ON public.anggota_kelas;
 CREATE POLICY "Students or teachers can leave/remove from class" 
 ON public.anggota_kelas FOR DELETE TO authenticated 
 USING (auth.uid() = student_id OR auth.uid() IN (SELECT teacher_id FROM public.kelas WHERE id = kelas_id));
 
 -- Tugas policies
+DROP POLICY IF EXISTS "Class members and teachers can view tasks" ON public.tugas;
 CREATE POLICY "Class members and teachers can view tasks" 
 ON public.tugas FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Teachers can manage tasks" ON public.tugas;
 CREATE POLICY "Teachers can manage tasks" 
 ON public.tugas FOR ALL TO authenticated 
 USING (auth.uid() IN (SELECT teacher_id FROM public.kelas WHERE id = kelas_id));
 
 -- Soal & Opsi & Kunci policies
+DROP POLICY IF EXISTS "Anyone in class can view questions" ON public.soal;
 CREATE POLICY "Anyone in class can view questions" 
 ON public.soal FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Teachers can manage questions" ON public.soal;
 CREATE POLICY "Teachers can manage questions" 
 ON public.soal FOR ALL TO authenticated 
 USING (auth.uid() IN (
@@ -242,9 +266,11 @@ USING (auth.uid() IN (
     WHERE t.id = tugas_id
 ));
 
+DROP POLICY IF EXISTS "Anyone in class can view options" ON public.opsi_jawaban;
 CREATE POLICY "Anyone in class can view options" 
 ON public.opsi_jawaban FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Teachers can manage options" ON public.opsi_jawaban;
 CREATE POLICY "Teachers can manage options" 
 ON public.opsi_jawaban FOR ALL TO authenticated 
 USING (auth.uid() IN (
@@ -254,6 +280,7 @@ USING (auth.uid() IN (
     WHERE s.id = soal_id
 ));
 
+DROP POLICY IF EXISTS "Teachers can manage essay keys" ON public.kunci_jawaban_essay;
 CREATE POLICY "Teachers can manage essay keys" 
 ON public.kunci_jawaban_essay FOR ALL TO authenticated 
 USING (auth.uid() IN (
@@ -264,6 +291,7 @@ USING (auth.uid() IN (
 ));
 
 -- Submissions policies
+DROP POLICY IF EXISTS "Students can view and create their submissions" ON public.jawaban_mahasiswa;
 CREATE POLICY "Students can view and create their submissions" 
 ON public.jawaban_mahasiswa FOR ALL TO authenticated 
 USING (
@@ -275,6 +303,7 @@ USING (
     )
 );
 
+DROP POLICY IF EXISTS "Students and teachers can access submission details" ON public.detail_jawaban;
 CREATE POLICY "Students and teachers can access submission details" 
 ON public.detail_jawaban FOR ALL TO authenticated 
 USING (
