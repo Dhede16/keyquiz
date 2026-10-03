@@ -10,9 +10,9 @@ import { addTaskToClass, classes } from '@/composables/useClasses.js'
 const route = useRoute()
 const router = useRouter()
 
-const classId = computed(() => Number(route.params.id) || 1)
+const classId = computed(() => route.params.id || 1)
 const currentClass = computed(() => {
-  return classes.value.find((c) => c.id === classId.value) || classes.value[0]
+  return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
 })
 
 // Header Formulir

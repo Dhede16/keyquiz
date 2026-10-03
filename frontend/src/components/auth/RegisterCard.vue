@@ -10,8 +10,11 @@ const fullName = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const role = ref('')
+const errorMsg = ref('')
+const loading = ref(false)
+
 const router = useRouter()
-const { login } = useAuth()
+const { register } = useAuth()
 
 const roles = [
   { value: 'teacher', label: 'Dosen' },
@@ -22,11 +25,33 @@ const mismatch = computed(
   () => confirmPassword.value !== '' && password.value !== confirmPassword.value,
 )
 
-// TODO: sambungkan ke backend nanti. Untuk sekarang hanya validasi dasar di sisi klien.
-function onSubmit() {
+async function onSubmit() {
   if (mismatch.value || !role.value) return
-  login({ email: email.value, name: fullName.value, role: role.value })
-  router.push('/beranda')
+  if (!email.value || !password.value || !fullName.value) {
+    errorMsg.value = 'Semua field wajib diisi.'
+    return
+  }
+  if (password.value.length < 6) {
+    errorMsg.value = 'Kata sandi minimal 6 karakter.'
+    return
+  }
+
+  errorMsg.value = ''
+  loading.value = true
+
+  try {
+    await register({
+      email: email.value,
+      password: password.value,
+      name: fullName.value,
+      role: role.value,
+    })
+    router.push('/beranda')
+  } catch (err) {
+    errorMsg.value = err.message || 'Gagal mendaftar. Silakan coba lagi.'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -36,11 +61,19 @@ function onSubmit() {
   >
     <h2 class="text-xl font-semibold text-[#111111] sm:text-3xl">Daftar ke KeyQuiz</h2>
 
-    <form class="mt-6 space-y-4 sm:mt-8 sm:space-y-5" @submit.prevent="onSubmit">
-      <TextField id="email" v-model="email" label="Email" type="email" autocomplete="email" />
-      <TextField id="fullName" v-model="fullName" label="Nama Lengkap" autocomplete="name" />
+    <div
+      v-if="errorMsg"
+      class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700"
+      role="alert"
+    >
+      {{ errorMsg }}
+    </div>
 
-      <!-- kata sandi & konfirmasi berdampingan (bertumpuk di layar sangat kecil) -->
+    <form class="mt-6 space-y-4 sm:mt-8 sm:space-y-5" @submit.prevent="onSubmit">
+      <TextField id="email" v-model="email" label="Email" type="email" autocomplete="email" required />
+      <TextField id="fullName" v-model="fullName" label="Nama Lengkap" autocomplete="name" required />
+
+      <!-- kata sandi & konfirmasi berdampingan -->
       <div class="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 sm:gap-3">
         <TextField
           id="password"
@@ -48,6 +81,7 @@ function onSubmit() {
           label="Kata Sandi"
           type="password"
           autocomplete="new-password"
+          required
         />
         <TextField
           id="confirmPassword"
@@ -55,6 +89,7 @@ function onSubmit() {
           label="Konfirmasi Kata Sandi"
           type="password"
           autocomplete="new-password"
+          required
         />
       </div>
       <p v-if="mismatch" class="-mt-2 text-sm text-red-600" role="alert">
@@ -67,13 +102,16 @@ function onSubmit() {
         label="Pilih Peran"
         placeholder="Pilih Peran"
         :options="roles"
+        required
       />
 
       <button
         type="submit"
-        class="motion-control mt-2 h-12 w-full cursor-pointer rounded-lg border border-[#1f52c4] bg-[#2864E8] text-base font-semibold text-white transition hover:bg-[#1f52c4] sm:h-14 sm:text-lg"
+        :disabled="loading || mismatch || !role"
+        class="motion-control mt-2 h-12 w-full cursor-pointer rounded-lg border border-[#1f52c4] bg-[#2864E8] text-base font-semibold text-white transition hover:bg-[#1f52c4] disabled:opacity-60 disabled:cursor-not-allowed sm:h-14 sm:text-lg flex items-center justify-center gap-2"
       >
-        Daftar
+        <span v-if="loading" class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+        <span>{{ loading ? 'Mendaftarkan...' : 'Daftar' }}</span>
       </button>
 
       <p class="text-center text-sm text-[#777777]">

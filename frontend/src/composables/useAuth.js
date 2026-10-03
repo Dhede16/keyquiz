@@ -1,10 +1,9 @@
 import { computed, ref } from 'vue'
+import { supabase } from '@/services/supabase.js'
 
-// Auth sementara (tanpa backend): data user disimpan di localStorage.
-// Nanti tinggal ganti isi login()/logout() dengan panggilan API.
 const STORAGE_KEY = 'keyquiz:user'
 
-function load() {
+function loadLocalUser() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null
   } catch {
@@ -12,8 +11,21 @@ function load() {
   }
 }
 
-// module-level: semua komponen berbagi state yang sama
-const user = ref(load())
+const user = ref(loadLocalUser())
+const authLoading = ref(false)
+
+function saveLocalUser(userData) {
+  user.value = userData
+  try {
+    if (userData) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(userData))
+    } else {
+      localStorage.removeItem(STORAGE_KEY)
+    }
+  } catch {
+    /* storage tidak tersedia */
+  }
+}
 
 function nameFromEmail(email) {
   const base = email
@@ -23,31 +35,183 @@ function nameFromEmail(email) {
   return base ? base.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Pengguna'
 }
 
+// Inisialisasi session dari Supabase Auth saat aplikasi dimulai
+async function initAuthSession() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) {
+      // Ambil detail profile dari tabel profiles
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+
+      const userData = {
+        id: session.user.id,
+        email: session.user.email,
+        name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
+        role: profile?.role || session.user.user_metadata?.role || 'student',
+        nim_nip: profile?.nim_nip || session.user.user_metadata?.nim_nip || '',
+      }
+      saveLocalUser(userData)
+    }
+  } catch (err) {
+    console.warn('[Supabase Auth] Sesi lokal tetap digunakan:', err.message)
+  }
+}
+
+// Pantau perubahan status autentikasi di Supabase
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (event === 'SIGNED_IN' && session?.user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single()
+
+    const userData = {
+      id: session.user.id,
+      email: session.user.email,
+      name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
+      role: profile?.role || session.user.user_metadata?.role || 'student',
+      nim_nip: profile?.nim_nip || session.user.user_metadata?.nim_nip || '',
+    }
+    saveLocalUser(userData)
+  } else if (event === 'SIGNED_OUT') {
+    saveLocalUser(null)
+  }
+})
+
+// Jalankan inisialisasi sesi di background
+initAuthSession()
+
 export function useAuth() {
   const isLoggedIn = computed(() => !!user.value)
 
-  function login({ email, name, role }) {
-    const existingRole = user.value?.email === email ? user.value.role : null
-    user.value = {
-      email,
-      name: name || nameFromEmail(email),
-      role: role || existingRole || 'teacher',
-    }
+  /**
+   * Login pengguna via Supabase Auth.
+   */
+  async function login({ email, password, role }) {
+    authLoading.value = true
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user.value))
-    } catch {
-      /* storage tidak tersedia */
+      if (password) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
+
+        if (error) {
+          // Jika user belum ada di Supabase auth (misal demo user), kita coba daftarkan otomatis atau login demo
+          if (error.message.includes('Invalid login credentials')) {
+            throw new Error('Email atau kata sandi salah. Silakan periksa kembali atau daftar akun baru.')
+          }
+          throw error
+        }
+
+        if (data?.user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.user.id)
+            .single()
+
+          const userData = {
+            id: data.user.id,
+            email: data.user.email,
+            name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
+            role: profile?.role || role || data.user.user_metadata?.role || 'teacher',
+            nim_nip: profile?.nim_nip || '',
+          }
+          saveLocalUser(userData)
+          return userData
+        }
+      } else {
+        // Fallback untuk mode tanpa password jika diperlukan
+        const userData = {
+          id: user.value?.id || `usr-${Date.now()}`,
+          email: email.trim(),
+          name: nameFromEmail(email),
+          role: role || user.value?.role || 'teacher',
+        }
+        saveLocalUser(userData)
+        return userData
+      }
+    } finally {
+      authLoading.value = false
     }
   }
 
-  function logout() {
-    user.value = null
+  /**
+   * Registrasi akun baru di Supabase Auth & tabel profiles.
+   */
+  async function register({ email, password, name, role = 'student', nim_nip = '' }) {
+    authLoading.value = true
     try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      /* storage tidak tersedia */
+      const trimmedEmail = email.trim()
+      const displayName = name?.trim() || nameFromEmail(trimmedEmail)
+
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: {
+          data: {
+            name: displayName,
+            role,
+            nim_nip,
+          },
+        },
+      })
+
+      if (error) throw error
+
+      const authUser = data?.user
+      if (authUser) {
+        // Pastikan record profil terisi (trigger akan handle, tapi upsert memastikan keamanan)
+        await supabase.from('profiles').upsert({
+          id: authUser.id,
+          email: trimmedEmail,
+          name: displayName,
+          role,
+          nim_nip,
+        })
+
+        const userData = {
+          id: authUser.id,
+          email: trimmedEmail,
+          name: displayName,
+          role,
+          nim_nip,
+        }
+        saveLocalUser(userData)
+        return userData
+      }
+    } finally {
+      authLoading.value = false
     }
   }
 
-  return { user, isLoggedIn, login, logout }
+  /**
+   * Keluar dari sesi aplikasi & Supabase Auth.
+   */
+  async function logout() {
+    authLoading.value = true
+    try {
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.warn('[Supabase Auth] SignOut error:', err.message)
+    } finally {
+      saveLocalUser(null)
+      authLoading.value = false
+    }
+  }
+
+  return {
+    user,
+    isLoggedIn,
+    authLoading,
+    login,
+    register,
+    logout,
+  }
 }

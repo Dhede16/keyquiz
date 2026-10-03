@@ -12,12 +12,12 @@ const route = useRoute()
 const router = useRouter()
 const { user } = useAuth()
 
-const classId = computed(() => Number(route.params.id) || 1)
+const classId = computed(() => route.params.id || 1)
 const isStudent = computed(() => user.value?.role === 'student')
 
 // Ambil data kelas atau fallback ke kelas pertama
 const currentClass = computed(() => {
-  return classes.value.find((c) => c.id === classId.value) || classes.value[0]
+  return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
 })
 
 const tasks = computed(() => currentClass.value?.tasks || [])

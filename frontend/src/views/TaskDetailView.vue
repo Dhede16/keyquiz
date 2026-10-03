@@ -19,19 +19,19 @@ const route = useRoute()
 const router = useRouter()
 const { user } = useAuth()
 
-const classId = computed(() => Number(route.params.id) || 1)
-const taskId = computed(() => Number(route.params.taskId) || 1)
+const classId = computed(() => route.params.id || 1)
+const taskId = computed(() => route.params.taskId || 1)
 const isStudent = computed(() => user.value?.role === 'student')
 const activeSheet = ref('results')
 
 const currentClass = computed(() => {
-  return classes.value.find((c) => c.id === classId.value) || classes.value[0]
+  return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
 })
 
 const currentTask = computed(() => {
   const tasks = currentClass.value?.tasks || []
   return (
-    tasks.find((t) => t.id === taskId.value) || {
+    tasks.find((t) => String(t.id) === String(taskId.value)) || {
       id: taskId.value,
       title: `Tugas ${taskId.value}`,
       date: 'Senin, 28 September 2026',
