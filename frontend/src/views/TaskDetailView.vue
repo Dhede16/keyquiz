@@ -13,6 +13,7 @@ import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
+import { gradeEssay, saveEssayKey } from '@/services/api.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -109,21 +110,76 @@ function isAnswerCorrect(question, answer) {
   )
 }
 
-function submitAnswers() {
-  if (!canSubmit.value || !user.value?.email) return
+const isSubmitting = ref(false)
 
+async function submitAnswers() {
+  if (!canSubmit.value || !user.value?.email || isSubmitting.value) return
+
+  isSubmitting.value = true
   let score = 0
   let fullyAutoGraded = true
-  const submittedAnswers = questions.value.map((question, index) => {
+  const submittedAnswers = []
+
+  for (let index = 0; index < questions.value.length; index++) {
+    const question = questions.value[index]
     const value = answers.value[index].trim()
-    if (question.answerKey?.trim()) {
-      if (isAnswerCorrect(question, value)) score += Number(question.points) || 0
+    let questionScore = 0
+    let aiEvaluation = null
+
+    if (question.type === 'multiple_choice') {
+      if (question.answerKey?.trim() && isAnswerCorrect(question, value)) {
+        questionScore = Number(question.points) || 0
+      }
+      score += questionScore
     } else {
-      fullyAutoGraded = false
+      // Soal Esai / Isian Singkat
+      if (question.answerKey?.trim()) {
+        try {
+          const soalIdStr = `soal-${question.id}`
+          const kunciIdStr = `kunci-${question.id}`
+          
+          // Pastikan kunci sudah tersimpan di Vector DB
+          await saveEssayKey({
+            idKunci: kunciIdStr,
+            idSoal: soalIdStr,
+            soal: question.title,
+            kunciTeks: question.answerKey,
+            rubrik: question.rubric || [],
+          }).catch(() => null)
+
+          // Nilai esai dengan AI
+          const res = await gradeEssay({
+            idDetail: `detail-${question.id}-${Date.now()}`,
+            idSoal: soalIdStr,
+            jawabanTeks: value,
+          })
+
+          if (res && typeof res.nilai_ai === 'number') {
+            questionScore = Math.round((res.nilai_ai / 100) * (Number(question.points) || 10))
+            score += questionScore
+            aiEvaluation = res
+          }
+        } catch (e) {
+          console.warn('[AI Essay Grading Fallback]', e)
+          if (isAnswerCorrect(question, value)) {
+            questionScore = Number(question.points) || 0
+            score += questionScore
+          } else {
+            fullyAutoGraded = false
+          }
+        }
+      } else {
+        fullyAutoGraded = false
+      }
     }
 
-    return { questionId: question.id, value }
-  })
+    submittedAnswers.push({
+      questionId: question.id,
+      value,
+      score: questionScore,
+      aiEvaluation,
+    })
+  }
 
   const savedTask = saveTaskSubmission(currentClass.value.id, currentTask.value.id, {
     email: user.value.email,
@@ -135,6 +191,7 @@ function submitAnswers() {
     submittedAt: new Date().toISOString(),
   })
 
+  isSubmitting.value = false
   if (savedTask) isSubmissionSuccessOpen.value = true
 }
 

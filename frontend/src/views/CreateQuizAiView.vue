@@ -6,6 +6,7 @@ import DeadlineModal from '@/components/ui/DeadlineModal.vue'
 import aiBannerImg from '@/assets/images/bennerbuatsoal_ai.png'
 import sendFillIcon from '@/assets/icons/Send_fill.svg'
 import { addTaskToClass, classes } from '@/composables/useClasses.js'
+import { generateQuizAI } from '@/services/api.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,6 +62,10 @@ const attachedFiles = ref([])
 const submittedAttachments = ref([])
 const showScore = ref(true)
 const showCorrectAnswers = ref(false)
+
+const isGeneratingAi = ref(false)
+const currentAiDisplayResponse = ref(defaultAiResponse)
+const generatedQuestionsList = ref([])
 
 function parseGeneratedQuestions(text) {
   const questions = []
@@ -124,7 +129,7 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function handleSubmitPrompt() {
+async function handleSubmitPrompt() {
   const prompt = inputPrompt.value.trim()
   if (!prompt && attachedFiles.value.length === 0) return
 
@@ -133,12 +138,69 @@ function handleSubmitPrompt() {
   attachedFiles.value = []
   isSubmitted.value = true
   inputPrompt.value = ''
+  isGeneratingAi.value = true
+  currentAiDisplayResponse.value = 'Sedang membuat butir soal dan kunci jawaban dengan AI...'
 
   nextTick(() => {
     if (chatScrollAreaRef.value) {
       chatScrollAreaRef.value.scrollTop = chatScrollAreaRef.value.scrollHeight
     }
   })
+
+  try {
+    const aiData = await generateQuizAI({ prompt: userMessage.value, jumlahPg: 3, jumlahEsai: 2 })
+    if (aiData && aiData.soal) {
+      let formattedText = `Berikut soal yang berhasil dibuat untuk "${aiData.judul || userMessage.value}":\n\n`
+      
+      const esaiList = aiData.soal.filter((s) => s.tipe === 'essay')
+      const pgList = aiData.soal.filter((s) => s.tipe === 'multiple_choice')
+      
+      if (esaiList.length > 0) {
+        formattedText += `Soal Esai:\n`
+        esaiList.forEach((s, idx) => {
+          formattedText += `${idx + 1}. ${s.pertanyaan}\n`
+          if (s.kunci_jawaban) formattedText += `   Kunci: ${s.kunci_jawaban}\n`
+        })
+        formattedText += `\n`
+      }
+
+      if (pgList.length > 0) {
+        formattedText += `Soal Pilihan Ganda:\n`
+        pgList.forEach((s, idx) => {
+          const nomor = esaiList.length + idx + 1
+          formattedText += `${nomor}. ${s.pertanyaan}\n`
+          s.opsi?.forEach((op) => {
+            formattedText += `${op.huruf}. ${op.teks}\n`
+          })
+          formattedText += `Jawaban: ${s.kunci_jawaban}\n\n`
+        })
+      }
+
+      currentAiDisplayResponse.value = formattedText.trim()
+      
+      // Simpan format terstruktur
+      generatedQuestionsList.value = aiData.soal.map((s, idx) => ({
+        id: Date.now() + idx,
+        title: s.pertanyaan,
+        type: s.tipe === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
+        options: s.opsi ? s.opsi.map((o) => o.teks) : [],
+        answerKey: s.kunci_jawaban || '',
+        rubric: s.rubrik || [],
+        points: s.bobot || 10,
+      }))
+    }
+  } catch (err) {
+    console.warn('[AI Quiz Fallback]', err)
+    currentAiDisplayResponse.value = defaultAiResponse
+    generatedQuestionsList.value = parseGeneratedQuestions(defaultAiResponse)
+  } finally {
+    isGeneratingAi.value = false
+    nextTick(() => {
+      if (chatScrollAreaRef.value) {
+        chatScrollAreaRef.value.scrollTop = chatScrollAreaRef.value.scrollHeight
+      }
+    })
+  }
 }
 
 function handleKeyDown(e) {
@@ -155,10 +217,14 @@ function handleAgree() {
 
 function saveAiTask(deadline) {
   const deadlineDate = new Date(`${deadline.date}T12:00:00`)
+  const finalQuestions = generatedQuestionsList.value.length > 0 
+    ? generatedQuestionsList.value 
+    : parseGeneratedQuestions(currentAiDisplayResponse.value || defaultAiResponse)
+
   addTaskToClass(classId.value, {
     id: Date.now(),
     title: userMessage.value || 'Kuis AI',
-    description: 'Soal dibuat dengan AI.',
+    description: 'Soal dibuat otomatis dengan AI.',
     date: deadlineDate.toLocaleDateString('id-ID', {
       weekday: 'long',
       day: 'numeric',
@@ -169,7 +235,7 @@ function saveAiTask(deadline) {
     deadlineTime: deadline.time,
     deadlineTimezone: 'WITA',
     dueAt: `${deadline.date}T${deadline.time}:00+08:00`,
-    questions: parseGeneratedQuestions(defaultAiResponse),
+    questions: finalQuestions,
     showScore: showScore.value,
     showCorrectAnswers: showCorrectAnswers.value,
   })
@@ -372,7 +438,16 @@ function handleCloseSuccess() {
               <div
                 class="rounded-[28px] rounded-bl-[4px] border-2 border-[#2864E8] bg-white p-5 sm:p-8 text-xs sm:text-sm lg:text-[15px] font-normal text-[#222222] shadow-sm leading-relaxed whitespace-pre-line"
               >
-                {{ defaultAiResponse }}
+                <div v-if="isGeneratingAi" class="flex items-center gap-3 text-slate-500 font-medium py-2">
+                  <svg class="animate-spin size-5 text-[#2864E8]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Sedang memproses dan menyusun soal dengan AI...</span>
+                </div>
+                <div v-else>
+                  {{ currentAiDisplayResponse }}
+                </div>
               </div>
 
               <!-- Ekor SVG Balon Chat AI Sesuai Foto 2 (Kiri Bawah) -->

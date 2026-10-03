@@ -6,6 +6,7 @@ import { defaultStudents } from '@/data/students.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import scanBannerImg from '@/assets/images/BennerscanSoal.png'
+import { scanAnswerSheet } from '@/services/api.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -210,38 +211,66 @@ function formatFileSize(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
-// Mulai proses scanning dengan animasi loading
-function startScanning() {
+// Mulai proses scanning dengan animasi loading dan panggilan backend Vision AI
+async function startScanning() {
   currentStep.value = 'scanning'
   scanProgress.value = 0
   scanStatusText.value = 'Membaca dokumen dan foto soal...'
 
   if (scanInterval) clearInterval(scanInterval)
 
-  const startTime = Date.now()
-  const duration = 2000
-
+  // Jalankan animasi progress
+  let progress = 0
   scanInterval = setInterval(() => {
-    const elapsed = Date.now() - startTime
-    const progress = Math.min(100, Math.floor((elapsed / duration) * 100))
-    scanProgress.value = progress
-
-    if (progress < 35) {
-      scanStatusText.value = 'Membaca teks dari lembar foto...'
-    } else if (progress < 75) {
-      scanStatusText.value = 'AI mengekstrak butir soal & kunci jawaban...'
-    } else {
-      scanStatusText.value = 'Menyiapkan hasil koreksi soal...'
+    if (progress < 90) {
+      progress += 5
+      scanProgress.value = progress
+      if (progress < 35) {
+        scanStatusText.value = 'Membaca teks dari lembar foto...'
+      } else if (progress < 75) {
+        scanStatusText.value = 'AI mengekstrak butir soal & kunci jawaban...'
+      } else {
+        scanStatusText.value = 'Menyiapkan hasil koreksi soal...'
+      }
     }
+  }, 100)
 
-    if (progress >= 100) {
-      clearInterval(scanInterval)
-      scanInterval = null
-      setTimeout(() => {
-        currentStep.value = 'result'
-      }, 250)
+  try {
+    if (selectedFiles.value.length > 0) {
+      const targetFile = selectedFiles.value[0]
+      const scanRes = await scanAnswerSheet({
+        file: targetFile,
+        jenis: 'pilihan_ganda',
+      })
+
+      if (scanRes && scanRes.jawaban_terbaca && scanRes.jawaban_terbaca.length > 0) {
+        scannedQuestions.value = scanRes.jawaban_terbaca.map((item, idx) => ({
+          id: item.nomor || idx + 1,
+          soal: `Soal Nomor ${item.nomor}`,
+          type: 'multiple_choice',
+          options: [
+            { value: 'A', label: 'A. Pilihan A' },
+            { value: 'B', label: 'B. Pilihan B' },
+            { value: 'C', label: 'C. Pilihan C' },
+            { value: 'D', label: 'D. Pilihan D' },
+          ],
+          selectedOption: item.pilihan ? item.pilihan.toUpperCase() : null,
+          points: 10,
+          checked: true,
+          isCertain: item.yakin !== false,
+        }))
+      }
     }
-  }, 40)
+  } catch (err) {
+    console.warn('[Vision AI Scan Fallback]', err)
+  } finally {
+    clearInterval(scanInterval)
+    scanInterval = null
+    scanProgress.value = 100
+    setTimeout(() => {
+      currentStep.value = 'result'
+    }, 200)
+  }
 }
 
 onUnmounted(() => {
