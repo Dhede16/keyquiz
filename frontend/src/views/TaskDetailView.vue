@@ -41,7 +41,6 @@ const currentTask = computed(() => {
 
 const questions = computed(() => currentTask.value.questions || [])
 const answers = ref([])
-const gradeDrafts = ref({})
 const isSubmissionSuccessOpen = ref(false)
 
 const studentSubmission = computed(() => {
@@ -138,60 +137,16 @@ async function submitAnswers() {
   if (savedTask) isSubmissionSuccessOpen.value = true
 }
 
-// Koreksi manual dosen: kumpulkan nilai per-soal lalu kirim
-const teacherScoreDrafts = ref({})
-const isGrading = ref({})
-
-function initGradeDraft(submission) {
-  if (teacherScoreDrafts.value[submission.email]) return
-  const draft = {}
-  for (const q of questions.value) {
-    const ans = submission.answers?.find((a) => a.questionId === q.id)
-    draft[q.id] = ans?.score ?? ''
-  }
-  teacherScoreDrafts.value[submission.email] = draft
-}
-
-async function submitTeacherGrade(submission) {
-  const draft = teacherScoreDrafts.value[submission.email] || {}
-  const total = questions.value.reduce((sum, q) => {
-    const v = Number(draft[q.id])
-    return sum + (Number.isFinite(v) ? v : 0)
-  }, 0)
-  const bounded = Math.min(Math.max(total, 0), submission.maxScore)
-  isGrading.value[submission.email] = true
-  await updateSubmissionScore(classId.value, taskId.value, submission.email, bounded)
-  isGrading.value[submission.email] = false
-}
-
 function saveSettings(key, event) {
   updateTaskSettings(classId.value, taskId.value, { [key]: event.target.checked })
 }
 
-function saveGrade(submission) {
-  const enteredScore = Number(gradeDrafts.value[submission.email])
-  if (!Number.isFinite(enteredScore)) return
-
-  const boundedScore = Math.min(Math.max(enteredScore, 0), submission.maxScore)
-  updateSubmissionScore(classId.value, taskId.value, submission.email, boundedScore)
-  gradeDrafts.value[submission.email] = boundedScore
-}
-
-function getSubmittedAnswerForTeacher(submission, question) {
-  return submission.answers?.find((a) => a.questionId === question.id)?.value || '-'
-}
-
-function openStudentResult(student, isDemo = false) {
+function openStudentResult(student) {
+  if (student.isDemo) return
   router.push({
-    name: 'scan-soal',
-    query: {
-      classId: String(classId.value),
-      taskId: String(taskId.value),
-      studentName: student.name || student.email,
-      studentEmail: student.email,
-      studentScore: String(student.score ?? ''),
-      demo: String(isDemo),
-    },
+    name: 'grade-submission',
+    params: { id: String(classId.value), taskId: String(taskId.value) },
+    query: { studentEmail: student.email },
   })
 }
 </script>
@@ -528,8 +483,9 @@ function openStudentResult(student, isDemo = false) {
               <article v-for="student in resultStudents" :key="student.email" class="min-w-0">
                 <button
                   type="button"
-                  class="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#c9c9c9] p-1.5 text-left shadow-[0_2px_3px_rgba(0,0,0,0.2)] transition hover:border-[#2864E8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2864E8] sm:gap-3 sm:p-2"
-                  @click="openStudentResult(student, student.isDemo)"
+                  :disabled="student.isDemo"
+                  class="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#c9c9c9] p-1.5 text-left shadow-[0_2px_3px_rgba(0,0,0,0.2)] transition hover:border-[#2864E8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2864E8] disabled:cursor-default sm:gap-3 sm:p-2"
+                  @click="openStudentResult(student)"
                 >
                   <div class="size-14 shrink-0 overflow-hidden rounded-xl sm:size-16">
                     <StudentAvatar />
@@ -541,87 +497,18 @@ function openStudentResult(student, isDemo = false) {
                     <p class="truncate text-[11px] text-[#888888] sm:text-xs">
                       {{ student.email }}
                     </p>
+                    <p v-if="!student.isDemo" class="mt-0.5 text-[10px] font-medium text-[#2864E8]">
+                      {{ student.graded ? 'Sudah dinilai · Klik untuk lihat' : 'Belum dinilai · Klik untuk koreksi' }}
+                    </p>
                   </div>
                   <div
-                    class="flex min-w-14 shrink-0 flex-col items-center rounded-lg bg-[#2864E8] px-2 py-1 text-xs font-medium leading-tight text-white shadow-sm sm:min-w-16 sm:py-1.5 sm:text-sm"
+                    class="flex min-w-14 shrink-0 flex-col items-center rounded-lg px-2 py-1 text-xs font-medium leading-tight text-white shadow-sm sm:min-w-16 sm:py-1.5 sm:text-sm"
+                    :class="student.graded ? 'bg-emerald-500' : 'bg-[#2864E8]'"
                   >
                     <span>Nilai</span>
                     <span>{{ student.displayScore }}</span>
                   </div>
                 </button>
-
-                <details
-                  v-if="!student.isDemo"
-                  class="mt-2 text-sm text-[#555555]"
-                  @toggle="initGradeDraft(student)"
-                >
-                  <summary class="cursor-pointer text-xs font-medium text-[#2864E8]">
-                    {{ student.graded ? 'Lihat jawaban & nilai' : 'Koreksi jawaban' }}
-                  </summary>
-                  <div class="mt-3 space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                    <!-- Per-soal: jawaban mahasiswa + input nilai dosen -->
-                    <div
-                      v-for="question in questions"
-                      :key="question.id"
-                      class="rounded-lg border border-slate-200 bg-white p-3"
-                    >
-                      <p class="text-xs font-semibold text-[#2563EB]">Soal · {{ question.points }} poin</p>
-                      <p class="mt-1 font-medium text-[#333333]">{{ question.title }}</p>
-                      <p class="mt-1.5 text-sm text-[#555555]">
-                        <span class="font-medium text-[#888888]">Jawaban:</span>
-                        {{ getSubmittedAnswerForTeacher(student, question) }}
-                      </p>
-                      <div v-if="question.answerKey" class="mt-1 text-xs text-emerald-700">
-                        Kunci: {{ question.answerKey }}
-                      </div>
-                      <!-- Input nilai per-soal -->
-                      <div v-if="!student.graded" class="mt-2 flex items-center gap-2">
-                        <label class="text-xs font-medium text-[#666666]">
-                          Nilai (0–{{ question.points }})
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          :max="question.points"
-                          class="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:border-[#2864E8]"
-                          :value="(teacherScoreDrafts[student.email] || {})[question.id] ?? ''"
-                          @input="
-                            teacherScoreDrafts[student.email] = {
-                              ...(teacherScoreDrafts[student.email] || {}),
-                              [question.id]: $event.target.value,
-                            }
-                          "
-                        />
-                      </div>
-                      <div v-else class="mt-1 text-xs font-semibold text-[#2864E8]">
-                        Nilai soal ini:
-                        {{
-                          student.answers?.find((a) => a.questionId === question.id)?.score ?? '-'
-                        }}
-                      </div>
-                    </div>
-
-                    <!-- Tombol kirim nilai (muncul hanya sebelum graded) -->
-                    <div v-if="!student.graded" class="flex items-center justify-between pt-1">
-                      <p class="text-xs text-[#888888]">
-                        Total: {{ questions.reduce((s, q) => s + (Number((teacherScoreDrafts[student.email] || {})[q.id]) || 0), 0) }}
-                        / {{ student.maxScore }}
-                      </p>
-                      <button
-                        type="button"
-                        :disabled="isGrading[student.email]"
-                        class="rounded-lg bg-[#2864E8] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#1f50be] disabled:opacity-50"
-                        @click="submitTeacherGrade(student)"
-                      >
-                        {{ isGrading[student.email] ? 'Mengirim...' : 'Kirim Nilai' }}
-                      </button>
-                    </div>
-                    <div v-else class="flex items-center justify-between rounded-lg bg-emerald-50 p-2">
-                      <span class="text-xs font-semibold text-emerald-700">Sudah dinilai</span>
-                      <span class="text-sm font-bold text-emerald-700">{{ student.score }} / {{ student.maxScore }}</span>
-                    </div>
-                  </div>
-                </details>
               </article>
             </div>
           </section>

@@ -9,6 +9,7 @@ import ClassDetailView from '@/views/ClassDetailView.vue'
 import TaskDetailView from '@/views/TaskDetailView.vue'
 import CreateQuizAiView from '@/views/CreateQuizAiView.vue'
 import CreateQuizManualView from '@/views/CreateQuizManualView.vue'
+import GradeSubmissionView from '@/views/GradeSubmissionView.vue'
 import { useLoading } from '@/composables/useLoading.js'
 import { useAuth } from '@/composables/useAuth.js'
 
@@ -46,6 +47,13 @@ const router = createRouter({
       name: 'task-detail',
       component: TaskDetailView,
       meta: { title: 'Detail Tugas' },
+    },
+    {
+      path: '/kelas/:id/tugas/:taskId/koreksi',
+      name: 'grade-submission',
+      component: GradeSubmissionView,
+      beforeEnter: teachersOnly,
+      meta: { title: 'Koreksi Jawaban' },
     },
     {
       path: '/scan-soal',
