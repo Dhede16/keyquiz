@@ -53,6 +53,7 @@ Jawaban: C`
 const inputPrompt = ref('')
 const isSubmitted = ref(false)
 const userMessage = ref('')
+const suggestedTaskTitle = ref('')
 const isAgreed = ref(false)
 const isDeadlineModalOpen = ref(false)
 const isSuccessModalOpen = ref(false)
@@ -150,6 +151,7 @@ async function handleSubmitPrompt() {
   try {
     const aiData = await generateQuizAI({ prompt: userMessage.value, jumlahPg: 3, jumlahEsai: 2 })
     if (aiData && aiData.soal) {
+      suggestedTaskTitle.value = aiData.judul || userMessage.value
       let formattedText = `Berikut soal yang berhasil dibuat untuk "${aiData.judul || userMessage.value}":\n\n`
       
       const esaiList = aiData.soal.filter((s) => s.tipe === 'essay')
@@ -191,6 +193,7 @@ async function handleSubmitPrompt() {
     }
   } catch (err) {
     console.warn('[AI Quiz Fallback]', err)
+    suggestedTaskTitle.value = userMessage.value
     currentAiDisplayResponse.value = defaultAiResponse
     generatedQuestionsList.value = parseGeneratedQuestions(defaultAiResponse)
   } finally {
@@ -223,7 +226,7 @@ function saveAiTask(deadline) {
 
   addTaskToClass(classId.value, {
     id: Date.now(),
-    title: userMessage.value || 'Kuis AI',
+    title: deadline.title || suggestedTaskTitle.value || 'Kuis AI',
     description: 'Soal dibuat otomatis dengan AI.',
     date: deadlineDate.toLocaleDateString('id-ID', {
       weekday: 'long',
@@ -304,11 +307,11 @@ function handleCloseSuccess() {
 
         <!-- Kotak Putih Tempat Chat / Prompt Awal -->
         <section
-          class="flex-1 flex flex-col items-center justify-center rounded-[1.5rem] bg-white p-6 shadow-sm sm:rounded-[2rem] sm:p-12 min-h-[300px]"
+          class="flex-1 flex flex-col items-center justify-center rounded-[1.5rem] border border-white/80 bg-[linear-gradient(180deg,#2563EB_0%,#808080_100%)] p-6 shadow-sm sm:rounded-[2rem] sm:p-12 min-h-[300px]"
         >
           <div class="w-full max-w-2xl text-center">
             <!-- Teks Tengah: Ada ide baru untuk hari ini? -->
-            <h1 class="text-2xl font-bold text-[#666666] sm:text-3xl lg:text-4xl tracking-tight">
+            <h1 class="text-2xl font-bold text-white sm:text-3xl lg:text-4xl tracking-tight">
               Ada ide baru untuk hari ini?
             </h1>
 
@@ -545,6 +548,8 @@ function handleCloseSuccess() {
 
     <DeadlineModal
       :open="isDeadlineModalOpen"
+      :show-title="true"
+      :initial-title="suggestedTaskTitle || userMessage || 'Kuis AI'"
       @close="isDeadlineModalOpen = false"
       @save="saveAiTask"
     />

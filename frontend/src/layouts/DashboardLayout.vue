@@ -75,12 +75,6 @@ function handleSignOut() {
   router.push('/login')
 }
 
-// "Kelola Akun Google Anda" -> halaman akun Google di tab baru
-function handleManageGoogle() {
-  closeProfile()
-  window.open('https://myaccount.google.com/', '_blank', 'noopener,noreferrer')
-}
-
 defineProps({
   noScroll: { type: Boolean, default: false },
 })
@@ -140,7 +134,6 @@ defineProps({
             :email="user?.email || 'Belum masuk'"
             @add-account="handleAddAccount"
             @sign-out="handleSignOut"
-            @manage-google="handleManageGoogle"
           />
         </div>
       </div>

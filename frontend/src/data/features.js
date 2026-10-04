@@ -4,7 +4,6 @@ import objectiveScoring from '@/assets/icons/objective-scoring.svg'
 import performance from '@/assets/icons/performance.svg'
 import questionBank from '@/assets/icons/question-bank.svg'
 import interactiveQuiz from '@/assets/icons/interactive-quiz.svg'
-import aiFeedback from '@/assets/icons/ai-feedback.svg'
 import learningAnalytics from '@/assets/icons/learning-analytics.svg'
 
 export const features = [
@@ -14,6 +13,5 @@ export const features = [
   { title: 'Performance', description: 'Pantau perkembangan dan hasil belajar', icon: performance, cardClass: 'bg-[#99CCFF]', iconClass: 'bg-[#1E6CF0]' },
   { title: 'Question Bank', description: 'Kelola semua soal dalam satu tempat', icon: questionBank, cardClass: 'bg-[#93E8DC]', iconClass: 'bg-[#12B5A0]' },
   { title: 'Interactive Quiz', description: 'Kerjakan kuis dengan pengalaman interaktif', icon: interactiveQuiz, cardClass: 'bg-[#FFA9AD]', iconClass: 'bg-[#F0433F]' },
-  { title: 'AI Feedback', description: 'Dapatkan feedback untuk setiap jawaban', icon: aiFeedback, cardClass: 'bg-[#97E6F7]', iconClass: 'bg-[#00C2E0]' },
   { title: 'Learning Analytics', description: 'Analisis hasil dan riwayat pembelajaran', icon: learningAnalytics, cardClass: 'bg-[#E0CDBF]', iconClass: 'bg-[#A67C5B]' },
 ]

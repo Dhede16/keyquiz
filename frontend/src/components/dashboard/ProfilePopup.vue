@@ -4,7 +4,6 @@ import IconUserCircle from '@/components/icons/IconUserCircle.vue'
 import IconPlus from '@/components/icons/IconPlus.vue'
 import IconSignOut from '@/components/icons/IconSignOut.vue'
 import IconClose from '@/components/icons/IconClose.vue'
-import IconGoogle from '@/components/icons/IconGoogle.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -12,7 +11,7 @@ const props = defineProps({
   email: { type: String, default: 'Email@gmail.com' },
 })
 
-const emit = defineEmits(['update:open', 'add-account', 'sign-out', 'manage-google'])
+const emit = defineEmits(['update:open', 'add-account', 'sign-out'])
 
 const panelRef = ref(null)
 
@@ -110,17 +109,6 @@ onBeforeUnmount(() => {
           <span class="text-[14px] font-medium text-[#222222]">Keluar dari semua akun</span>
         </button>
       </div>
-
-      <!-- Manage Google account -->
-      <button
-        type="button"
-        class="pp-row mt-3 flex w-full cursor-pointer items-center gap-3 rounded-full border border-[#e3e3e3] px-4 py-3 text-left transition hover:bg-black/[0.03]"
-        style="--pp-delay: 190ms"
-        @click="emit('manage-google')"
-      >
-        <IconGoogle class="size-[18px] shrink-0" />
-        <span class="text-[14px] font-medium text-[#222222]">Kelola Akun Google Anda</span>
-      </button>
     </div>
   </Transition>
 </template>

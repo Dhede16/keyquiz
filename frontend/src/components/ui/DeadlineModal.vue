@@ -5,9 +5,12 @@ import clockIcon from '@/assets/icons/Clock.svg'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
+  showTitle: { type: Boolean, default: false },
+  initialTitle: { type: String, default: '' },
 })
 
 const emit = defineEmits(['close', 'save'])
+const taskTitle = ref('')
 const deadlineDate = ref('')
 const deadlineTime = ref('23:59')
 
@@ -25,6 +28,7 @@ watch(
   (isOpen) => {
     if (!isOpen) return
 
+    taskTitle.value = props.initialTitle.slice(0, 120)
     const defaultDate = new Date()
     defaultDate.setDate(defaultDate.getDate() + 14)
     deadlineDate.value = formatDate(defaultDate)
@@ -33,8 +37,12 @@ watch(
 )
 
 function saveDeadline() {
-  if (!deadlineDate.value || !deadlineTime.value) return
-  emit('save', { date: deadlineDate.value, time: deadlineTime.value })
+  if (!deadlineDate.value || !deadlineTime.value || (props.showTitle && !taskTitle.value.trim())) return
+  emit('save', {
+    title: taskTitle.value.trim(),
+    date: deadlineDate.value,
+    time: deadlineTime.value,
+  })
 }
 </script>
 
@@ -55,7 +63,9 @@ function saveDeadline() {
         <header
           class="relative flex min-h-20 items-center justify-center bg-[linear-gradient(105deg,#2864E8_0%,#173C87_100%)] px-14 py-5 text-center text-white sm:min-h-[104px] sm:px-20"
         >
-          <h2 id="deadline-title" class="text-xl font-bold sm:text-2xl">Tentukan Tenggat Waktu</h2>
+          <h2 id="deadline-title" class="text-xl font-bold sm:text-2xl">
+            {{ showTitle ? 'Atur Judul & Tenggat Tugas' : 'Tentukan Tenggat Waktu' }}
+          </h2>
           <button
             type="button"
             class="absolute right-4 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center text-white transition hover:scale-110 sm:right-8 sm:size-12"
@@ -74,6 +84,18 @@ function saveDeadline() {
         </header>
 
         <div class="space-y-5 px-5 py-7 sm:px-10 sm:py-9">
+          <label v-if="showTitle" class="block">
+            <span class="mb-2 block text-base font-medium text-[#888888] sm:text-2xl">Judul Tugas</span>
+            <input
+              v-model="taskTitle"
+              type="text"
+              maxlength="120"
+              placeholder="Masukkan judul tugas"
+              required
+              class="h-[68px] w-full rounded-2xl border border-[#888888] bg-white px-4 text-lg font-medium text-black outline-none transition placeholder:text-[#999999] focus:border-[#2864E8] focus:ring-2 focus:ring-[#2864E8]/20 sm:h-[78px] sm:px-5 sm:text-2xl"
+            />
+          </label>
+
           <label class="block">
             <span class="mb-2 block text-base font-medium text-[#888888] sm:text-2xl">Tanggal</span>
             <span class="relative block">
