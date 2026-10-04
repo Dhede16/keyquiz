@@ -24,6 +24,38 @@ const tasks = computed(() => currentClass.value?.tasks || [])
 const activeClassTab = ref('quizzes')
 const selectedStatisticStudent = ref(null)
 const classStatisticsStudents = computed(() => {
+  const members = currentClass.value?.members || []
+  if (members.length > 0) {
+    return members.map((member) => {
+      const studentEmail = member.email.toLowerCase()
+      const quizScores = tasks.value.map((task) => {
+        const sub = task.submissions?.find((s) => s.email?.toLowerCase() === studentEmail)
+        return {
+          id: task.id,
+          title: task.title,
+          score: sub && sub.score != null ? Number(sub.score) : null,
+        }
+      })
+      const completedScores = quizScores
+        .filter((quiz) => quiz.score !== null && quiz.score !== undefined)
+        .map((quiz) => Number(quiz.score))
+
+      return {
+        id: member.id || member.studentId,
+        name: member.name,
+        email: member.email,
+        completedQuizCount: completedScores.length,
+        average:
+          completedScores.length > 0
+            ? Math.round(
+                completedScores.reduce((total, score) => total + score, 0) / completedScores.length,
+              )
+            : null,
+        quizScores,
+      }
+    })
+  }
+
   return defaultStudents.map((student) => {
     const quizScores = tasks.value.map((task) => ({
       id: task.id,
@@ -121,6 +153,16 @@ function selectClassTab(tab) {
   if (tab === 'quizzes') selectedStatisticStudent.value = null
 }
 
+// Salin kode kelas
+const classCodeCopied = ref(false)
+function copyClassCode() {
+  if (!currentClass.value?.code) return
+  navigator.clipboard.writeText(currentClass.value.code).then(() => {
+    classCodeCopied.value = true
+    setTimeout(() => { classCodeCopied.value = false }, 2000)
+  })
+}
+
 // Modal Pilihan Metode Pembuatan Soal (AI vs Manual)
 const isChoiceModalOpen = ref(false)
 
@@ -196,6 +238,30 @@ function getStudentSubmission(task) {
           alt="Selamat datang di kelas KeyQuiz"
           class="block aspect-[4.7/1] w-full object-cover"
         />
+      </section>
+
+      <!-- Kode Kelas (hanya untuk dosen) -->
+      <section
+        v-if="!isStudent && currentClass?.code"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3.5 shadow-sm"
+      >
+        <div class="flex items-center gap-3">
+          <svg class="size-5 shrink-0 text-[#2864E8]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+          </svg>
+          <div>
+            <p class="text-xs font-semibold text-slate-500">Kode Bergabung Kelas</p>
+            <p class="font-mono text-lg font-bold tracking-widest text-[#2864E8]">{{ currentClass.code }}</p>
+          </div>
+        </div>
+        <button
+          id="copy-class-code-btn"
+          type="button"
+          class="cursor-pointer rounded-xl border border-[#2864E8] px-4 py-2 text-sm font-semibold text-[#2864E8] transition hover:bg-[#2864E8] hover:text-white active:scale-95"
+          @click="copyClassCode"
+        >
+          {{ classCodeCopied ? '✓ Tersalin!' : 'Salin Kode' }}
+        </button>
       </section>
 
       <div

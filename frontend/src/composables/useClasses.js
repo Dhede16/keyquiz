@@ -38,9 +38,42 @@ function getMemberships(email) {
   }
 }
 
-function getClassesForStudent(email) {
+function getClassesForStudent(email, studentId = null) {
+  if (!email && !studentId) return []
   const memberships = new Set(getMemberships(email).map(String))
-  return classes.value.filter((classItem) => memberships.has(String(classItem.id)))
+  const cleanEmail = email ? email.trim().toLowerCase() : ''
+
+  return classes.value.filter((classItem) => {
+    if (memberships.has(String(classItem.id))) return true
+    if (classItem.code && memberships.has(String(classItem.code).toUpperCase())) return true
+    if (Array.isArray(classItem.members)) {
+      if (studentId && classItem.members.some((m) => m.studentId === studentId || m.id === studentId)) {
+        return true
+      }
+      if (cleanEmail && classItem.members.some((m) => m.email?.trim().toLowerCase() === cleanEmail)) {
+        return true
+      }
+    }
+    return false
+  })
+}
+
+function getClassesForTeacher(email, teacherId = null, teacherName = null) {
+  const cleanEmail = email ? email.trim().toLowerCase() : ''
+  const cleanName = teacherName ? teacherName.trim().toLowerCase() : ''
+
+  return classes.value.filter((classItem) => {
+    if (teacherId && (classItem.teacherId === teacherId || classItem.teacher_id === teacherId)) {
+      return true
+    }
+    if (cleanEmail && ((classItem.teacherEmail && classItem.teacherEmail.toLowerCase() === cleanEmail) || (classItem.email && classItem.email.toLowerCase() === cleanEmail))) {
+      return true
+    }
+    if (cleanName && classItem.lecturer && classItem.lecturer.toLowerCase().includes(cleanName)) {
+      return true
+    }
+    return false
+  })
 }
 
 /**
@@ -51,16 +84,34 @@ async function syncClassesFromSupabase(userEmail = null) {
   isSyncing.value = true
 
   try {
-    // 1. Ambil data kelas beserta tugas, soal, dan opsi
+    const { data: { user } } = await supabase.auth.getUser()
+
+    // 1. Ambil data kelas beserta anggota_kelas, tugas, soal, opsi, kunci, jawaban_mahasiswa, dan detail_jawaban
     const { data: dbClasses, error: classErr } = await supabase
       .from('kelas')
       .select(`
         id,
+        teacher_id,
         title,
         major,
         description,
         code,
         created_at,
+        profiles:teacher_id (
+          id,
+          email,
+          name
+        ),
+        anggota_kelas (
+          id,
+          student_id,
+          joined_at,
+          profiles (
+            id,
+            email,
+            name
+          )
+        ),
         tugas (
           id,
           title,
@@ -98,6 +149,7 @@ async function syncClassesFromSupabase(userEmail = null) {
             submitted_at,
             graded_at,
             profiles (
+              id,
               email,
               name
             ),
@@ -120,7 +172,30 @@ async function syncClassesFromSupabase(userEmail = null) {
     if (classErr) throw classErr
 
     if (dbClasses && dbClasses.length > 0) {
+      const emailToCheck = userEmail || user?.email
+
+      // Jika user terautentikasi sebagai siswa, sinkronkan keanggotaan kelas dari tabel anggota_kelas
+      if (emailToCheck && user) {
+        const studentJoinedClassIds = dbClasses
+          .filter((c) => (c.anggota_kelas || []).some((ak) => ak.student_id === user.id || ak.profiles?.email?.toLowerCase() === emailToCheck.toLowerCase()))
+          .map((c) => String(c.id))
+
+        if (studentJoinedClassIds.length > 0) {
+          const currentLocal = getMemberships(emailToCheck)
+          const merged = Array.from(new Set([...currentLocal.map(String), ...studentJoinedClassIds]))
+          localStorage.setItem(membershipStorageKey(emailToCheck), JSON.stringify(merged))
+        }
+      }
+
       const formattedClasses = dbClasses.map((c) => {
+        const formattedMembers = (c.anggota_kelas || []).map((ak) => ({
+          id: ak.id,
+          studentId: ak.student_id,
+          joinedAt: ak.joined_at,
+          email: ak.profiles?.email || '',
+          name: ak.profiles?.name || 'Mahasiswa',
+        }))
+
         const formattedTasks = (c.tugas || []).map((t) => {
           const deadlineObj = t.deadline ? new Date(t.deadline) : null
           const formattedQuestions = (t.soal || [])
@@ -146,6 +221,7 @@ async function syncClassesFromSupabase(userEmail = null) {
 
           const formattedSubmissions = (t.jawaban_mahasiswa || []).map((jm) => ({
             id: jm.id,
+            studentId: jm.student_id,
             email: jm.profiles?.email || '',
             name: jm.profiles?.name || 'Mahasiswa',
             score: jm.total_score,
@@ -184,15 +260,18 @@ async function syncClassesFromSupabase(userEmail = null) {
 
         return {
           id: c.id,
+          teacherId: c.teacher_id,
+          teacherEmail: c.profiles?.email || '',
+          lecturer: c.profiles?.name || 'Dosen',
           title: c.title,
           major: c.major || '',
           description: c.description || '',
           code: c.code,
+          members: formattedMembers,
           tasks: formattedTasks,
         }
       })
 
-      // Gabungkan dengan state dan simpan
       classes.value = formattedClasses
       saveLocal()
     }
@@ -212,10 +291,27 @@ async function addClass(classItem) {
     code = `KQ-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
   }
 
+  let teacherId = classItem.teacherId || null
+  let teacherEmail = classItem.teacherEmail || null
+  let lecturerName = classItem.lecturer || 'Dosen'
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      teacherId = user.id
+      teacherEmail = user.email
+      lecturerName = user.user_metadata?.name || lecturerName
+    }
+  } catch {}
+
   const newClass = {
     ...classItem,
     id: classItem.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cls-${Date.now()}`),
     code,
+    teacherId,
+    teacherEmail,
+    lecturer: lecturerName,
+    members: classItem.members || [],
     tasks: classItem.tasks || [],
   }
 
@@ -223,20 +319,19 @@ async function addClass(classItem) {
   saveLocal()
 
   // Kirim ke Supabase jika terautentikasi
-  try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
+  if (teacherId) {
+    try {
       await supabase.from('kelas').insert({
         id: newClass.id,
-        teacher_id: user.id,
+        teacher_id: teacherId,
         title: newClass.title,
         major: newClass.major || null,
         description: newClass.description || null,
         code: newClass.code,
       })
+    } catch (err) {
+      console.warn('[Supabase DB] Simpan kelas gagal:', err.message)
     }
-  } catch (err) {
-    console.warn('[Supabase DB] Simpan kelas gagal:', err.message)
   }
 
   return newClass
@@ -397,13 +492,27 @@ async function saveTaskSubmission(classId, taskId, submission) {
 
       if (!subErr && subData && Array.isArray(submission.answers)) {
         for (const ans of submission.answers) {
-          await supabase.from('detail_jawaban').insert({
+          const detailRow = {
             submission_id: subData.id,
             soal_id: ans.questionId,
             jawaban_teks: ans.value || '',
             nilai_final: ans.score ?? null,
             teacher_feedback: ans.feedback || null,
-          })
+          }
+
+          if (ans.aiEvaluation) {
+            if (typeof ans.aiEvaluation.similarity === 'number') {
+              detailRow.similarity_score = ans.aiEvaluation.similarity
+            }
+            if (typeof ans.aiEvaluation.nilai_ai === 'number') {
+              detailRow.nilai_ai = ans.aiEvaluation.nilai_ai
+            }
+            if (ans.aiEvaluation.evaluasi_rubrik) {
+              detailRow.rubric_evaluation = ans.aiEvaluation.evaluasi_rubrik
+            }
+          }
+
+          await supabase.from('detail_jawaban').insert(detailRow)
         }
       }
     }
@@ -431,7 +540,7 @@ function updateTaskSettings(classId, taskId, settings) {
   return updated
 }
 
-function updateSubmissionScore(classId, taskId, email, score) {
+async function updateSubmissionScore(classId, taskId, email, score) {
   const updated = updateTask(classId, taskId, (task) => {
     const submission = task.submissions?.find(
       (item) => item.email.trim().toLowerCase() === email.trim().toLowerCase(),
@@ -442,19 +551,56 @@ function updateSubmissionScore(classId, taskId, email, score) {
     submission.graded = true
   })
 
+  // Sinkronisasi update nilai ke tabel `jawaban_mahasiswa` di Supabase
+  try {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .single()
+
+    if (profiles?.id) {
+      await supabase
+        .from('jawaban_mahasiswa')
+        .update({
+          total_score: score,
+          status: 'graded',
+          graded_at: new Date().toISOString(),
+        })
+        .eq('tugas_id', taskId)
+        .eq('student_id', profiles.id)
+    }
+  } catch (err) {
+    console.warn('[Supabase DB] Gagal update nilai jawaban_mahasiswa:', err.message)
+  }
+
   return updated
 }
 
 async function joinClassByCode(email, code) {
   const cleanCode = (code || '').trim().toUpperCase()
+  if (!cleanCode) return { status: 'not-found' }
   
-  // Cari di database Supabase terlebih dahulu
+  // 1. Cari di database Supabase terlebih dahulu
   try {
     const { data: dbClass, error: findErr } = await supabase
       .from('kelas')
-      .select('*')
+      .select(`
+        id,
+        teacher_id,
+        title,
+        major,
+        description,
+        code,
+        created_at,
+        profiles:teacher_id (
+          id,
+          email,
+          name
+        )
+      `)
       .eq('code', cleanCode)
-      .single()
+      .maybeSingle()
 
     if (dbClass) {
       const { data: { user } } = await supabase.auth.getUser()
@@ -469,19 +615,35 @@ async function joinClassByCode(email, code) {
       }
 
       // Pastikan kelas ada di state lokal
-      if (!classes.value.some((c) => String(c.id) === String(dbClass.id))) {
-        classes.value.unshift({
+      let existing = classes.value.find((c) => String(c.id) === String(dbClass.id) || c.code?.toUpperCase() === cleanCode)
+      if (!existing) {
+        existing = {
           id: dbClass.id,
+          teacherId: dbClass.teacher_id,
+          teacherEmail: dbClass.profiles?.email || '',
+          lecturer: dbClass.profiles?.name || 'Dosen',
           title: dbClass.title,
           major: dbClass.major || '',
           description: dbClass.description || '',
           code: dbClass.code,
+          members: user ? [{ id: user.id, studentId: user.id, email: user.email, name: user.user_metadata?.name || 'Mahasiswa' }] : [],
           tasks: [],
-        })
+        }
+        classes.value.unshift(existing)
+      } else if (user) {
+        existing.members ||= []
+        if (!existing.members.some((m) => m.studentId === user.id || m.email?.toLowerCase() === user.email?.toLowerCase())) {
+          existing.members.push({
+            id: user.id,
+            studentId: user.id,
+            email: user.email,
+            name: user.user_metadata?.name || 'Mahasiswa',
+          })
+        }
       }
       
       const memberships = getMemberships(email)
-      if (!memberships.includes(dbClass.id)) {
+      if (!memberships.some((m) => String(m) === String(dbClass.id) || String(m).toUpperCase() === cleanCode)) {
         localStorage.setItem(
           membershipStorageKey(email),
           JSON.stringify([...memberships, dbClass.id]),
@@ -489,18 +651,18 @@ async function joinClassByCode(email, code) {
       }
 
       saveLocal()
-      return { status: 'joined', classItem: dbClass }
+      return { status: 'joined', classItem: existing }
     }
   } catch (err) {
     console.warn('[Supabase DB] Join query gagal, cek lokal:', err.message)
   }
 
-  // Cek di state lokal jika database tidak menemukan
+  // 2. Cek di state lokal jika database tidak menemukan
   const classItem = classes.value.find((item) => item.code?.toUpperCase() === cleanCode)
   if (!classItem) return { status: 'not-found' }
 
   const memberships = getMemberships(email)
-  if (memberships.some((id) => String(id) === String(classItem.id))) {
+  if (memberships.some((id) => String(id) === String(classItem.id) || String(id).toUpperCase() === cleanCode)) {
     return { status: 'already-joined', classItem }
   }
 
@@ -552,6 +714,12 @@ async function leaveClass(email, classId) {
     // ignore
   }
 
+  const classItem = classes.value.find((c) => String(c.id) === strId)
+  if (classItem && Array.isArray(classItem.members)) {
+    classItem.members = classItem.members.filter((m) => m.email?.toLowerCase() !== email?.toLowerCase())
+  }
+  saveLocal()
+
   // Hapus dari Supabase jika terautentikasi
   try {
     const { data: { user } } = await supabase.auth.getUser()
@@ -584,6 +752,7 @@ export {
   deleteClass,
   leaveClass,
   getClassesForStudent,
+  getClassesForTeacher,
   joinClassByCode,
   saveTaskSubmission,
   syncClassesFromSupabase,

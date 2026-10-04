@@ -4,10 +4,10 @@ import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import {
   addClass,
-  classes,
   deleteClass,
   leaveClass,
   getClassesForStudent,
+  getClassesForTeacher,
   joinClassByCode,
 } from '@/composables/useClasses.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
@@ -19,14 +19,14 @@ import bannerImg from '@/assets/images/dashboard-banner.png'
 const router = useRouter()
 const { user } = useAuth()
 const isStudent = computed(() => user.value?.role === 'student')
-const studentClasses = ref(getClassesForStudent(user.value?.email))
-const classList = computed(() =>
-  isStudent.value
-    ? studentClasses.value.length > 0
-      ? studentClasses.value
-      : classes.value
-    : classes.value,
-)
+
+const classList = computed(() => {
+  if (isStudent.value) {
+    return getClassesForStudent(user.value?.email, user.value?.id)
+  }
+  return getClassesForTeacher(user.value?.email, user.value?.id, user.value?.name)
+})
+
 const upcomingQuizzes = computed(() => {
   if (!isStudent.value) return []
 
@@ -83,7 +83,7 @@ async function handleConfirmAction() {
   if (type === 'delete') {
     await deleteClass(classItem.id)
   } else if (type === 'leave') {
-    studentClasses.value = await leaveClass(user.value?.email, classItem.id)
+    await leaveClass(user.value?.email, classItem.id)
   }
 
   confirmModal.value.isOpen = false
@@ -98,15 +98,12 @@ function openJoinModal() {
   isJoinModalOpen.value = true
 }
 
-function handleCreateClass(newClass) {
-  addClass({
-    id: Date.now(),
-    ...newClass,
-  })
+async function handleCreateClass(newClass) {
+  await addClass(newClass)
 }
 
-function handleJoinClass(code) {
-  const result = joinClassByCode(user.value?.email || '', code)
+async function handleJoinClass(code) {
+  const result = await joinClassByCode(user.value?.email || '', code)
 
   if (result.status === 'not-found') {
     joinMessage.value = 'Kode kelas tidak ditemukan. Periksa kembali kode dari dosen.'
@@ -126,7 +123,6 @@ function handleJoinClass(code) {
     return
   }
 
-  studentClasses.value = getClassesForStudent(user.value?.email)
   joinMessage.value = ''
   isJoinModalOpen.value = false
 }
@@ -199,11 +195,14 @@ function formatDeadline(timestamp) {
             class="motion-control cursor-pointer text-base font-medium text-[#2864E8] transition hover:underline sm:text-[22px]"
             @click="isStudent ? openJoinModal() : openCreateModal()"
           >
-            {{ isStudent ? '+ Gabung Kelas' : '+ Tambah Kelas' }}
+            + Tambah Kelas
           </button>
         </div>
 
-        <div class="motion-stagger grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 lg:gap-[13px]">
+        <div
+          v-if="classList.length > 0"
+          class="motion-stagger grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 lg:gap-[13px]"
+        >
           <ClassCard
             v-for="c in classList"
             :key="c.id"
@@ -217,12 +216,33 @@ function formatDeadline(timestamp) {
             @leave="confirmLeaveClass(c)"
           />
         </div>
-        <p
-          v-if="isStudent && classList.length === 0"
-          class="py-8 text-center text-sm text-[#777777]"
+        
+        <!-- Empty State jika belum ada kelas -->
+        <div
+          v-else
+          class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 py-12 px-4 text-center sm:py-16"
         >
-          Belum ada kelas. Masukkan kode yang diberikan dosen untuk bergabung.
-        </p>
+          <div class="mb-3 flex size-12 items-center justify-center rounded-full bg-blue-50 text-[#2864E8]">
+            <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+          </div>
+          <p class="text-base font-medium text-[#777777] sm:text-lg">
+            <template v-if="isStudent">
+              belum masuk kelas manapun
+            </template>
+            <template v-else>
+              Belum ada kelas yang dibuat
+            </template>
+          </p>
+          <p v-if="isStudent" class="mt-1.5 text-xs text-[#999999] sm:text-sm">
+            Klik tombol <strong>+ Tambah Kelas</strong> di atas dan masukkan kode kelas untuk bergabung.
+          </p>
+          <p v-else class="mt-1.5 text-xs text-[#999999] sm:text-sm">
+            Klik tombol <strong>+ Tambah Kelas</strong> di atas untuk membuat kelas baru.
+          </p>
+        </div>
+
         <p
           v-if="isStudent && joinMessage && !isJoinModalOpen"
           class="mt-3 text-sm text-red-600"
@@ -233,8 +253,10 @@ function formatDeadline(timestamp) {
       </section>
     </div>
 
-    <!-- Modal Buat Kelas -->
+    <!-- Modal Buat Kelas (Dosen) -->
     <CreateClassModal v-model:open="isCreateModalOpen" @create="handleCreateClass" />
+    
+    <!-- Modal Tambah / Gabung Kelas (Mahasiswa) -->
     <JoinClassModal
       v-model:open="isJoinModalOpen"
       :message="joinMessage"

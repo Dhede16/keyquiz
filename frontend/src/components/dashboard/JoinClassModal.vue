@@ -52,7 +52,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="w-full max-w-[480px] overflow-hidden rounded-[20px] bg-white shadow-2xl animate-scale-up">
           <div class="relative flex items-center justify-center bg-[#2864E8] px-6 py-4.5">
             <h2 id="join-class-title" class="text-xl font-bold text-white sm:text-2xl">
-              Gabung Kelas
+              Tambah Kelas
             </h2>
             <button
               type="button"

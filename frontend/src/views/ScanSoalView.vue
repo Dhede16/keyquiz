@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { classes } from '@/composables/useClasses.js'
+import { useAuth } from '@/composables/useAuth.js'
+import { classes, getClassesForTeacher } from '@/composables/useClasses.js'
 import { defaultStudents } from '@/data/students.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
@@ -10,6 +11,7 @@ import { scanAnswerSheet } from '@/services/api.js'
 
 const route = useRoute()
 const router = useRouter()
+const { user } = useAuth()
 
 // State: 'upload' | 'scanning' | 'result'
 const currentStep = ref(route.query.studentEmail ? 'result' : 'upload')
@@ -35,9 +37,13 @@ const selectedClassId = ref('')
 const selectedStudentIds = ref([])
 const selectedStudents = ref([])
 
+const teacherClasses = computed(() =>
+  getClassesForTeacher(user.value?.email, user.value?.id, user.value?.name),
+)
+
 const filteredClasses = computed(() => {
   const search = classSearch.value.trim().toLocaleLowerCase()
-  return classes.value.filter((classItem) => {
+  return teacherClasses.value.filter((classItem) => {
     const matchesSearch =
       !search ||
       [classItem.title, classItem.major, classItem.lecturer]

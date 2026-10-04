@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 
-defineProps({
+const props = defineProps({
   title: { type: String, required: true },
   major: { type: String, required: true },
   lecturer: { type: String, required: true },
@@ -12,6 +12,17 @@ defineProps({
 const emit = defineEmits(['delete', 'leave'])
 
 const isMenuOpen = ref(false)
+const copied = ref(false)
+
+function handleCopyCode() {
+  if (!props.code) return
+  navigator.clipboard.writeText(props.code).then(() => {
+    copied.value = true
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
+  })
+}
 
 function toggleMenu() {
   isMenuOpen.value = !isMenuOpen.value
@@ -119,11 +130,26 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <p v-if="code" class="mt-2 text-[11px] font-semibold tracking-wide text-[#2864E8] sm:text-xs">
-      KODE KELAS: {{ code }}
-    </p>
+    <div
+      v-if="code"
+      class="mt-2.5 flex items-center justify-between gap-2 rounded-lg bg-blue-50/80 px-2.5 py-1.5 border border-blue-200/60"
+      @click.stop
+    >
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Kode:</span>
+        <span class="font-mono text-xs font-bold tracking-wider text-[#2864E8] truncate">{{ code }}</span>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 cursor-pointer rounded px-2 py-0.5 text-[11px] font-semibold text-[#2864E8] hover:bg-blue-100/70 active:scale-95 transition"
+        :title="'Salin kode kelas ' + code"
+        @click.stop="handleCopyCode"
+      >
+        {{ copied ? 'Tersalin!' : 'Salin' }}
+      </button>
+    </div>
 
-    <div class="mt-auto flex items-center gap-2 pt-4 sm:gap-2.5 sm:pt-6">
+    <div class="mt-auto flex items-center gap-2 pt-3 sm:gap-2.5 sm:pt-4">
       <!-- avatar placeholder -->
       <svg class="size-6 shrink-0 sm:size-[30px]" viewBox="0 0 30 30" aria-hidden="true">
         <circle cx="15" cy="15" r="15" fill="#D9D9D9" />
