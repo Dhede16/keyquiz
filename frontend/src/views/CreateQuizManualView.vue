@@ -114,7 +114,6 @@ function handleSaveForm() {
 function saveForm(deadline) {
   const deadlineDate = new Date(`${deadline.date}T12:00:00`)
   addTaskToClass(classId.value, {
-    id: Date.now(),
     title: formTitle.value.trim() || 'Tugas tanpa judul',
     description: formDesc.value.trim(),
     date: deadlineDate.toLocaleDateString('id-ID', {

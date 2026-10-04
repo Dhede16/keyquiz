@@ -1,7 +1,6 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue'
 import IconUserCircle from '@/components/icons/IconUserCircle.vue'
-import IconPlus from '@/components/icons/IconPlus.vue'
 import IconSignOut from '@/components/icons/IconSignOut.vue'
 import IconClose from '@/components/icons/IconClose.vue'
 
@@ -11,7 +10,7 @@ const props = defineProps({
   email: { type: String, default: 'Email@gmail.com' },
 })
 
-const emit = defineEmits(['update:open', 'add-account', 'sign-out'])
+const emit = defineEmits(['update:open', 'sign-out'])
 
 const panelRef = ref(null)
 
@@ -83,19 +82,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="h-px bg-[#e3e3e3]" />
-
-        <button
-          type="button"
-          class="pp-row flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition hover:bg-black/[0.03]"
-          style="--pp-delay: 90ms"
-          @click="emit('add-account')"
-        >
-          <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#EDEFF3] text-[#5B5F6B]">
-            <IconPlus class="size-3.5" />
-          </span>
-          <span class="text-[14px] font-medium text-[#222222]">Tambahkan Akun</span>
-        </button>
 
         <div class="h-px bg-[#e3e3e3]" />
 
@@ -106,7 +92,7 @@ onBeforeUnmount(() => {
           @click="emit('sign-out')"
         >
           <IconSignOut class="size-[26px] shrink-0 text-[#222222]" />
-          <span class="text-[14px] font-medium text-[#222222]">Keluar dari semua akun</span>
+          <span class="text-[14px] font-medium text-[#222222]">Keluar dari akun</span>
         </button>
       </div>
     </div>

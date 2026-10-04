@@ -306,7 +306,7 @@ async function addClass(classItem) {
 
   const newClass = {
     ...classItem,
-    id: classItem.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cls-${Date.now()}`),
+    id: classItem.id || crypto.randomUUID(),
     code,
     teacherId,
     teacherEmail,
@@ -344,7 +344,7 @@ async function addTaskToClass(classId, task) {
   const classItem = classes.value.find((item) => String(item.id) === String(classId))
   if (!classItem) return null
 
-  const taskId = task.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tsk-${Date.now()}`)
+  const taskId = task.id || crypto.randomUUID()
   const newTask = {
     showScore: true,
     showCorrectAnswers: false,
@@ -384,7 +384,10 @@ async function addTaskToClass(classId, task) {
       // 2. Insert tiap butir soal ke tabel `soal` & opsi/kunci
       for (let i = 0; i < (newTask.questions || []).length; i++) {
         const q = newTask.questions[i]
-        const soalId = q.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `soal-${Date.now()}-${i}`)
+        // Selalu generate UUID baru untuk soal — ID lokal (Date.now) bukan valid UUID Supabase
+        const soalId = crypto.randomUUID()
+        // Update ID soal di state lokal agar jawaban mahasiswa bisa match dengan soal_id Supabase
+        q.id = soalId
 
         const { error: soalErr } = await supabase.from('soal').insert({
           id: soalId,

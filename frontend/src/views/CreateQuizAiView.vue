@@ -225,7 +225,6 @@ function saveAiTask(deadline) {
     : parseGeneratedQuestions(currentAiDisplayResponse.value || defaultAiResponse)
 
   addTaskToClass(classId.value, {
-    id: Date.now(),
     title: deadline.title || suggestedTaskTitle.value || 'Kuis AI',
     description: 'Soal dibuat otomatis dengan AI.',
     date: deadlineDate.toLocaleDateString('id-ID', {
