@@ -126,8 +126,9 @@ Setelah backend dan frontend berjalan, Anda dapat menguji fitur-fitur unggulan b
 
 2. **Pemindaian Lembar Jawaban Kertas (Vision AI Scan)**:
    - Buka menu **Scan Soal** pada navigasi sidebar.
-   - Unggah foto lembar jawaban kertas (contoh foto sampel tersedia di [backend/backend-prototype/foto-testing-scan](file:///c:/Users/NITRO/supercode/keyquiz/backend/backend-prototype/foto-testing-scan)).
-   - AI Vision akan mengekstrak opsi jawaban siswa dan mencocokkannya secara instan dengan kunci jawaban.
+   - Unggah satu foto JPG, PNG, atau WEBP berisi soal pilihan ganda beserta tanda jawaban siswa.
+   - Periksa hasil ekstraksi teks soal dan keterangan setiap opsi; koreksi jawaban siswa yang terbaca, tentukan kunci jawaban dan bobot, lalu sesuaikan nilai bila perlu.
+   - Pilih kelas dan satu mahasiswa, lalu kirim hasil. Hasil scan, jawaban, dan nilai tersimpan sebagai tugas di kelas tersebut dan dapat dilihat mahasiswa pada detail tugas.
 
 3. **Penilaian Esai Semantik (Hybrid Grading Engine)**:
    - Mahasiswa mengumpulkan jawaban esai pada halaman detail tugas.

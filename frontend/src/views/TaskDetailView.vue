@@ -392,6 +392,38 @@ function openStudentResult(student) {
           <p class="mt-2 text-sm text-[#666666]">
             Jawaban kamu: {{ getSubmittedAnswer(question, index) }}
           </p>
+          <div
+            v-if="question.type === 'multiple_choice' && question.options?.length"
+            class="mt-2 space-y-1"
+          >
+            <p
+              v-for="(option, optionIndex) in question.options"
+              :key="optionIndex"
+              class="text-sm"
+              :class="{
+                'font-semibold text-[#2864E8]':
+                  option.trim().toLowerCase() === getSubmittedAnswer(question, index).trim().toLowerCase(),
+                'font-semibold text-emerald-700':
+                  studentSubmission.graded &&
+                  currentTask.showCorrectAnswers &&
+                  option.trim().toLowerCase() === question.answerKey?.trim().toLowerCase(),
+              }"
+            >
+              {{ option }}
+              <span
+                v-if="option.trim().toLowerCase() === getSubmittedAnswer(question, index).trim().toLowerCase()"
+                class="text-xs"
+              >— Jawaban terbaca</span>
+              <span
+                v-else-if="
+                  studentSubmission.graded &&
+                  currentTask.showCorrectAnswers &&
+                  option.trim().toLowerCase() === question.answerKey?.trim().toLowerCase()
+                "
+                class="text-xs"
+              >— Kunci jawaban</span>
+            </p>
+          </div>
           <template v-if="studentSubmission.graded && currentTask.showCorrectAnswers && question.answerKey">
             <p
               class="mt-2 text-sm font-semibold"

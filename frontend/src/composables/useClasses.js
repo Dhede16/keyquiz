@@ -162,7 +162,8 @@ async function syncClassesFromSupabase(userEmail = null) {
               rubric_evaluation,
               nilai_ai,
               nilai_final,
-              teacher_feedback
+              teacher_feedback,
+              yakin_scan
             )
           )
         )
@@ -226,6 +227,8 @@ async function syncClassesFromSupabase(userEmail = null) {
             name: jm.profiles?.name || 'Mahasiswa',
             score: jm.total_score,
             graded: jm.status === 'graded',
+            isScanned: jm.is_scanned,
+            maxScore: formattedQuestions.reduce((sum, question) => sum + question.points, 0),
             submittedAt: jm.submitted_at,
             answers: (jm.detail_jawaban || []).map((dj) => {
               const question = formattedQuestions.find((item) => item.id === dj.soal_id)
@@ -241,6 +244,7 @@ async function syncClassesFromSupabase(userEmail = null) {
                 value: dj.jawaban_teks,
                 score: dj.nilai_final ?? aiScore,
                 feedback: dj.teacher_feedback,
+                isCertain: dj.yakin_scan,
                 rubricEvaluation: dj.rubric_evaluation,
                 aiEvaluation:
                   similarity == null
@@ -539,6 +543,192 @@ async function saveTaskSubmission(classId, taskId, submission) {
   return updatedTask
 }
 
+async function saveScannedSubmission(classId, studentId, questions, fileName) {
+  const classItem = classes.value.find((item) => String(item.id) === String(classId))
+  if (!classItem) throw new Error('Kelas yang dipilih tidak ditemukan.')
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new Error('Tidak ada soal hasil scan untuk dikirim.')
+  }
+  for (const [index, question] of questions.entries()) {
+    if (
+      !question ||
+      !question.title?.trim() ||
+      !Array.isArray(question.options) ||
+      question.options.some(
+        (option) => !option?.value || !option.label?.trim(),
+      )
+    ) {
+      throw new Error(`Format opsi soal ${index + 1} tidak valid.`)
+    }
+    const optionValues = question.options.map((option) => option.value)
+    if (
+      !question.title?.trim() ||
+      question.options.length < 2 ||
+      new Set(optionValues).size !== optionValues.length ||
+      !optionValues.includes(question.answerKey) ||
+      (question.selectedOption && !optionValues.includes(question.selectedOption)) ||
+      !Number.isFinite(Number(question.points)) ||
+      Number(question.points) < 0 ||
+      !Number.isFinite(Number(question.score)) ||
+      Number(question.score) < 0 ||
+      Number(question.score) > Number(question.points)
+    ) {
+      throw new Error(`Periksa kembali soal ${index + 1}, opsi, kunci jawaban, dan nilainya.`)
+    }
+  }
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError) throw new Error(`Gagal memeriksa akun dosen: ${userError.message}`)
+  if (!user || classItem.teacherId !== user.id) {
+    throw new Error('Hanya dosen pengampu kelas yang dapat mengirim hasil scan.')
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from('anggota_kelas')
+    .select('student_id')
+    .eq('kelas_id', classItem.id)
+    .eq('student_id', studentId)
+    .maybeSingle()
+
+  if (membershipError) throw new Error(`Gagal memeriksa mahasiswa kelas: ${membershipError.message}`)
+  if (!membership) throw new Error('Mahasiswa yang dipilih bukan anggota kelas ini.')
+
+  const { data: student, error: studentError } = await supabase
+    .from('profiles')
+    .select('id, email, name')
+    .eq('id', studentId)
+    .single()
+  if (studentError) throw new Error(`Data mahasiswa tidak ditemukan: ${studentError.message}`)
+
+  const taskId = crypto.randomUUID()
+  const task = {
+    id: taskId,
+    title: `Hasil Scan - ${fileName}`,
+    description: 'Hasil scan lembar pilihan ganda yang telah dikoreksi dosen.',
+    status: 'published',
+    showScore: true,
+    showCorrectAnswers: true,
+    isScanned: true,
+    date: new Date().toLocaleDateString('id-ID'),
+    questions: [],
+    submissions: [],
+  }
+
+  const savedQuestionData = []
+  let taskCreated = false
+  try {
+    const { error: taskError } = await supabase.from('tugas').insert({
+      id: taskId,
+      kelas_id: classItem.id,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      show_score: true,
+      show_correct_answers: true,
+    })
+    if (taskError) throw new Error(`Gagal menyimpan tugas scan: ${taskError.message}`)
+    taskCreated = true
+
+    for (let index = 0; index < questions.length; index++) {
+      const question = questions[index]
+      const questionId = crypto.randomUUID()
+      const { error: questionError } = await supabase.from('soal').insert({
+        id: questionId,
+        tugas_id: taskId,
+        type: 'multiple_choice',
+        question_text: question.title,
+        points: Number(question.points),
+        order_index: index + 1,
+      })
+      if (questionError) throw new Error(`Gagal menyimpan soal ${index + 1}: ${questionError.message}`)
+
+      const options = question.options.map((option, optionIndex) => ({
+        soal_id: questionId,
+        option_letter: option.value,
+        option_text: option.label,
+        is_correct: option.value === question.answerKey,
+        order_index: optionIndex + 1,
+      }))
+      const { data: savedOptions, error: optionsError } = await supabase
+        .from('opsi_jawaban')
+        .insert(options)
+        .select('id, option_letter, option_text')
+      if (optionsError) throw new Error(`Gagal menyimpan opsi soal ${index + 1}: ${optionsError.message}`)
+
+      task.questions.push({
+        id: questionId,
+        title: question.title,
+        type: 'multiple_choice',
+        points: Number(question.points),
+        options: question.options.map((option) => option.label),
+        answerKey: question.options.find((option) => option.value === question.answerKey)?.label || '',
+      })
+      savedQuestionData.push({ id: questionId, options: savedOptions })
+    }
+
+    const totalScore = questions.reduce((sum, question) => sum + Number(question.score || 0), 0)
+    const { data: submission, error: submissionError } = await supabase
+      .from('jawaban_mahasiswa')
+      .insert({
+        tugas_id: taskId,
+        student_id: student.id,
+        status: 'graded',
+        total_score: totalScore,
+        is_scanned: true,
+        submitted_at: new Date().toISOString(),
+        graded_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
+    if (submissionError) throw new Error(`Gagal menyimpan hasil mahasiswa: ${submissionError.message}`)
+
+    const details = questions.map((question, index) => ({
+      submission_id: submission.id,
+      soal_id: savedQuestionData[index].id,
+      opsi_jawaban_id:
+        savedQuestionData[index].options.find((option) => option.option_letter === question.selectedOption)?.id || null,
+      jawaban_teks:
+        question.options.find((option) => option.value === question.selectedOption)?.label || '',
+      nilai_final: Number(question.score || 0),
+      yakin_scan: question.isCertain,
+    }))
+    const { error: detailsError } = await supabase.from('detail_jawaban').insert(details)
+    if (detailsError) throw new Error(`Gagal menyimpan detail hasil scan: ${detailsError.message}`)
+
+    task.submissions.push({
+      id: submission.id,
+      studentId: student.id,
+      email: student.email,
+      name: student.name,
+      score: totalScore,
+      maxScore: questions.reduce((sum, question) => sum + Number(question.points), 0),
+      graded: true,
+      isScanned: true,
+      submittedAt: new Date().toISOString(),
+      answers: questions.map((question, index) => ({
+        questionId: savedQuestionData[index].id,
+        value: question.options.find((option) => option.value === question.selectedOption)?.label || '',
+        score: Number(question.score || 0),
+        isCertain: question.isCertain,
+      })),
+    })
+    classItem.tasks ||= []
+    classItem.tasks.unshift(task)
+    saveLocal()
+    return task
+  } catch (error) {
+    if (taskCreated) {
+      try {
+        const { error: cleanupError } = await supabase.from('tugas').delete().eq('id', taskId)
+        if (cleanupError) throw cleanupError
+      } catch (cleanupError) {
+        throw new Error(`${error.message} Data tugas parsial juga gagal dibersihkan: ${cleanupError.message}`)
+      }
+    }
+    throw error
+  }
+}
+
 function updateTaskSettings(classId, taskId, settings) {
   const updated = updateTask(classId, taskId, (task) => Object.assign(task, settings))
   
@@ -793,6 +983,7 @@ export {
   getClassesForTeacher,
   joinClassByCode,
   saveTaskSubmission,
+  saveScannedSubmission,
   syncClassesFromSupabase,
   updateSubmissionScore,
   updateTaskSettings,

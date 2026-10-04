@@ -5,20 +5,23 @@ from PIL import Image, ImageOps
 from app.core.ai_client import panggil_ai_json
 
 PROMPT_PILIHAN_GANDA = """
-Foto ini adalah lembar soal pilihan ganda yang sudah dijawab dengan cara menyilang (x) atau melingkari salah satu huruf pilihan (a, b, c, d, atau e).
+Foto ini adalah lembar soal pilihan ganda yang mungkin sudah dijawab dengan cara menyilang (x) atau melingkari salah satu pilihan.
 
-Tugas Anda: tentukan huruf pilihan yang ditandai siswa untuk SETIAP nomor soal yang ada di lembar.
+Tugas Anda: salin teks pertanyaan, seluruh pilihan beserta keterangannya, dan pilihan yang ditandai siswa untuk SETIAP soal pilihan ganda yang terbaca.
 
 Aturan:
+- Salin teks soal dan pilihan apa adanya; jangan menyimpulkan atau melengkapi teks yang tidak terbaca.
+- Untuk setiap pilihan, keluarkan huruf dan teks keterangannya secara terpisah.
 - Tanda silang/lingkaran bisa menimpa huruf pilihan atau kata di sebelahnya.
 - Pada soal dialog/percakapan, abaikan label dialog (seperti A:, B:, X:, Y:), itu bukan opsi jawaban.
-- Jika sebuah nomor tidak ada tandanya, isi "pilihan" dengan null.
+- Jika pertanyaan, pilihan, atau jawaban yang ditandai tidak terbaca, tulis "[tidak terbaca]" atau null sesuai jenis datanya.
+- Jika sebuah nomor tidak ada tanda jawaban, isi "pilihan_dipilih" dengan null.
 - Jika ada tanda tetapi Anda ragu pilihan mana yang dimaksud, isi "yakin" dengan false.
 - Laporkan hanya apa yang ditandai siswa, jangan menebak jawaban benar.
 - Urutkan nomor soal secara kronologis (1, 2, 3, ...).
 
 Balas HANYA dengan JSON valid tanpa teks lain:
-{"jawaban": [{"nomor": 1, "pilihan": "a", "yakin": true}, {"nomor": 2, "pilihan": null, "yakin": true}]}
+{"jawaban": [{"nomor": 1, "pertanyaan": "Teks pertanyaan", "opsi": [{"huruf": "a", "teks": "Keterangan opsi A"}, {"huruf": "b", "teks": "Keterangan opsi B"}], "pilihan_dipilih": "a", "yakin": true}]}
 """
 
 PROMPT_ESAI = """
@@ -62,12 +65,24 @@ def bersihkan_pilihan_ganda(data: dict) -> list[dict]:
     """Normalisasi hasil ekstraksi pilihan ganda."""
     hasil = []
     for item in data.get("jawaban", []):
-        pilihan = item.get("pilihan")
+        pilihan = item.get("pilihan_dipilih", item.get("pilihan"))
         pilihan = pilihan.strip().lower() if isinstance(pilihan, str) else None
-        if pilihan not in ("a", "b", "c", "d", "e"):
+        opsi = []
+        for option in item.get("opsi", []):
+            if not isinstance(option, dict):
+                continue
+            huruf = str(option.get("huruf", "")).strip().lower()
+            teks = str(option.get("teks", "")).strip()
+            if huruf and teks:
+                opsi.append({"huruf": huruf, "teks": teks})
+        huruf_valid = {option["huruf"] for option in opsi}
+        if pilihan not in huruf_valid:
             pilihan = None
+        nomor = int(item["nomor"])
         hasil.append({
-            "nomor": int(item["nomor"]),
+            "nomor": nomor,
+            "pertanyaan": str(item.get("pertanyaan", "")).strip(),
+            "opsi": opsi,
             "pilihan": pilihan,
             "yakin": bool(item.get("yakin", True)),
         })

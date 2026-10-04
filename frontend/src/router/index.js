@@ -59,6 +59,7 @@ const router = createRouter({
       path: '/scan-soal',
       name: 'scan-soal',
       component: ScanSoalView,
+      beforeEnter: teachersOnly,
       meta: { title: 'Scan Soal' },
     },
     {

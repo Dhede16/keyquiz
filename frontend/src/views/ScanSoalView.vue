@@ -1,27 +1,18 @@
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
-import { classes, getClassesForTeacher } from '@/composables/useClasses.js'
-import { defaultStudents } from '@/data/students.js'
+import { classes, getClassesForTeacher, saveScannedSubmission } from '@/composables/useClasses.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import scanBannerImg from '@/assets/images/BennerscanSoal.png'
 import { scanAnswerSheet } from '@/services/api.js'
 
-const route = useRoute()
 const router = useRouter()
 const { user } = useAuth()
 
 // State: 'upload' | 'scanning' | 'result'
-const currentStep = ref(route.query.studentEmail ? 'result' : 'upload')
-
-watch(
-  () => route.query.studentEmail,
-  (studentEmail) => {
-    currentStep.value = studentEmail ? 'result' : 'upload'
-  },
-)
+const currentStep = ref('upload')
 
 const fileInput = ref(null)
 const selectedFiles = ref([])
@@ -35,7 +26,6 @@ const showStudentFilter = ref(false)
 const showOnlySelectedStudents = ref(false)
 const selectedClassId = ref('')
 const selectedStudentIds = ref([])
-const selectedStudents = ref([])
 
 const teacherClasses = computed(() =>
   getClassesForTeacher(user.value?.email, user.value?.id, user.value?.name),
@@ -59,16 +49,22 @@ const selectedClass = computed(
 )
 
 const availableStudents = computed(() => {
-  const submissions = (selectedClass.value?.tasks || []).flatMap((task) => task.submissions || [])
-  if (submissions.length === 0) return defaultStudents
+  const members = selectedClass.value?.members || []
+  if (members.length > 0) return members
 
+  const submissions = (selectedClass.value?.tasks || []).flatMap((task) => task.submissions || [])
   const uniqueStudents = new Map()
   submissions.forEach((submission) => {
     const email = submission.email?.trim().toLowerCase()
-    if (email && !uniqueStudents.has(email)) uniqueStudents.set(email, submission)
+    if (email && submission.studentId && !uniqueStudents.has(email)) {
+      uniqueStudents.set(email, submission)
+    }
   })
   return [...uniqueStudents.values()]
 })
+const selectedStudent = computed(() =>
+  availableStudents.value.find((student) => getStudentId(student) === selectedStudentIds.value[0]),
+)
 
 const filteredStudents = computed(() => {
   const search = studentSearch.value.trim().toLocaleLowerCase()
@@ -87,13 +83,17 @@ const filteredStudents = computed(() => {
 // Scanning animation state
 const scanProgress = ref(0)
 const scanStatusText = ref('Menganalisis dokumen...')
+const scanError = ref('')
+const submissionError = ref('')
+const isSubmitting = ref(false)
+const savedTaskId = ref('')
 let scanInterval = null
 
 // Modal simpan
 const isSavedModalOpen = ref(false)
 
 function openClassSelection() {
-  if (selectedFiles.value.length === 0) return
+  if (!canSubmitScan.value) return
 
   selectionStep.value = 'class'
   classSearch.value = ''
@@ -104,6 +104,7 @@ function openClassSelection() {
   showStudentFilter.value = false
   selectedClassId.value = ''
   selectedStudentIds.value = []
+  submissionError.value = ''
   isSelectionModalOpen.value = true
 }
 
@@ -138,51 +139,16 @@ function setStudentFilter(onlySelected) {
 }
 
 function getStudentId(student) {
-  return student.id ?? student.email
+  return student.studentId ?? student.id ?? student.email
 }
 
 function toggleStudentSelection(student) {
   const studentId = getStudentId(student)
-  selectedStudentIds.value = selectedStudentIds.value.includes(studentId)
-    ? selectedStudentIds.value.filter((id) => id !== studentId)
-    : [...selectedStudentIds.value, studentId]
+  selectedStudentIds.value =
+    selectedStudentIds.value[0] === studentId ? [] : [studentId]
 }
 
-function beginCorrection() {
-  if (selectedStudentIds.value.length === 0) return
-
-  selectedStudents.value = availableStudents.value.filter((student) =>
-    selectedStudentIds.value.includes(getStudentId(student)),
-  )
-  isSelectionModalOpen.value = false
-  startScanning()
-}
-
-// Data soal hasil scan (frontend mock sesuai tampilan gambar pengguna)
-const scannedQuestions = ref([
-  {
-    id: 1,
-    soal: 'ICONFEST diselenggarakan dimana?',
-    jawaban: 'di Unsil Tasikmalaya',
-    type: 'short_answer',
-    points: 50,
-    checked: true,
-  },
-  {
-    id: 2,
-    soal: 'Manakah yang termasuk kategori lomba dalam ICONFEST 2026?',
-    type: 'multiple_choice',
-    options: [
-      { value: 'A', label: 'A. Software Development' },
-      { value: 'B', label: 'B. Digital Marketing' },
-      { value: 'C', label: 'C. Network Engineering' },
-      { value: 'D', label: 'D. Game Development' },
-    ],
-    selectedOption: 'A',
-    points: 50,
-    checked: true,
-  },
-])
+const scannedQuestions = ref([])
 
 function triggerFileInput() {
   fileInput.value?.click()
@@ -191,22 +157,24 @@ function triggerFileInput() {
 function onFileChange(event) {
   const files = Array.from(event.target.files || [])
   if (files.length > 0) {
-    selectedFiles.value = [...selectedFiles.value, ...files]
+    const file = files[0]
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      selectedFiles.value = []
+      scanError.value = 'Format yang didukung hanya JPG, PNG, atau WEBP.'
+    } else {
+      selectedFiles.value = [file]
+      scanError.value = ''
+    }
   }
+  event.target.value = ''
 }
 
 function removeFile(index) {
   selectedFiles.value.splice(index, 1)
-  if (selectedFiles.value.length === 0 && fileInput.value) {
-    fileInput.value.value = ''
-  }
 }
 
 function clearAllFiles() {
   selectedFiles.value = []
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
 }
 
 function formatFileSize(bytes) {
@@ -219,11 +187,12 @@ function formatFileSize(bytes) {
 
 // Mulai proses scanning dengan animasi loading dan panggilan backend Vision AI
 async function startScanning() {
+  if (selectedFiles.value.length === 0 || scanInterval) return
   currentStep.value = 'scanning'
+  scanError.value = ''
+  scannedQuestions.value = []
   scanProgress.value = 0
   scanStatusText.value = 'Membaca dokumen dan foto soal...'
-
-  if (scanInterval) clearInterval(scanInterval)
 
   // Jalankan animasi progress
   let progress = 0
@@ -234,7 +203,7 @@ async function startScanning() {
       if (progress < 35) {
         scanStatusText.value = 'Membaca teks dari lembar foto...'
       } else if (progress < 75) {
-        scanStatusText.value = 'AI mengekstrak butir soal & kunci jawaban...'
+        scanStatusText.value = 'AI mengekstrak soal, opsi, dan jawaban bertanda...'
       } else {
         scanStatusText.value = 'Menyiapkan hasil koreksi soal...'
       }
@@ -242,40 +211,41 @@ async function startScanning() {
   }, 100)
 
   try {
-    if (selectedFiles.value.length > 0) {
-      const targetFile = selectedFiles.value[0]
-      const scanRes = await scanAnswerSheet({
-        file: targetFile,
-        jenis: 'pilihan_ganda',
-      })
-
-      if (scanRes && scanRes.jawaban_terbaca && scanRes.jawaban_terbaca.length > 0) {
-        scannedQuestions.value = scanRes.jawaban_terbaca.map((item, idx) => ({
-          id: item.nomor || idx + 1,
-          soal: `Soal Nomor ${item.nomor}`,
-          type: 'multiple_choice',
-          options: [
-            { value: 'A', label: 'A. Pilihan A' },
-            { value: 'B', label: 'B. Pilihan B' },
-            { value: 'C', label: 'C. Pilihan C' },
-            { value: 'D', label: 'D. Pilihan D' },
-          ],
-          selectedOption: item.pilihan ? item.pilihan.toUpperCase() : null,
-          points: 10,
-          checked: true,
-          isCertain: item.yakin !== false,
-        }))
-      }
+    const scanRes = await scanAnswerSheet({
+      file: selectedFiles.value[0],
+      jenis: 'pilihan_ganda',
+    })
+    const rows = scanRes?.jawaban_terbaca || []
+    if (rows.some((item) => !item.pertanyaan || !Array.isArray(item.opsi) || item.opsi.length < 2)) {
+      throw new Error(
+        'Backend scan yang sedang berjalan masih memakai format lama dan belum mengirim teks soal serta opsi. Restart backend dari folder backend, lalu coba scan lagi.',
+      )
     }
+    scannedQuestions.value = rows.map((item, idx) => ({
+      id: idx + 1,
+      nomor: item.nomor || idx + 1,
+      soal: item.pertanyaan || `Soal Nomor ${item.nomor || idx + 1}`,
+      options: (item.opsi || []).map((option) => ({
+        value: String(option.huruf).toUpperCase(),
+        label: `${String(option.huruf).toUpperCase()}. ${option.teks}`,
+      })),
+      selectedOption: item.pilihan ? item.pilihan.toUpperCase() : '',
+      answerKey: '',
+      points: 10,
+      score: 0,
+      isCertain: item.yakin !== false,
+    }))
+    if (scannedQuestions.value.length === 0) {
+      throw new Error('AI tidak menemukan soal pada foto. Unggah foto soal pilihan ganda yang lebih jelas.')
+    }
+    currentStep.value = 'result'
   } catch (err) {
-    console.warn('[Vision AI Scan Fallback]', err)
+    scanError.value = err.message || 'Gagal memindai foto. Silakan coba lagi.'
+    currentStep.value = 'upload'
   } finally {
     clearInterval(scanInterval)
     scanInterval = null
     scanProgress.value = 100
-    setTimeout(() => {
-      currentStep.value = 'result'
-    }, 200)
   }
 }
 
@@ -283,55 +253,88 @@ onUnmounted(() => {
   if (scanInterval) clearInterval(scanInterval)
 })
 
-// Toggle status centang soal oleh guru
-function toggleQuestionCheck(index) {
-  scannedQuestions.value[index].checked = !scannedQuestions.value[index].checked
+function updateQuestionScore(question) {
+  const isCorrect = question.answerKey && question.answerKey === question.selectedOption
+  question.score = isCorrect ? Number(question.points) || 0 : 0
 }
 
-// Centang semua / batalkan centang semua
-const allChecked = computed(() => {
-  return scannedQuestions.value.length > 0 && scannedQuestions.value.every((q) => q.checked)
-})
-
-function toggleCheckAll() {
-  const target = !allChecked.value
-  scannedQuestions.value.forEach((q) => {
-    q.checked = target
-  })
+function updateQuestionPoints(question) {
+  const points = Number(question.points)
+  question.points = Number.isFinite(points) ? Math.max(points, 0) : 0
+  question.score = Math.min(Number(question.score) || 0, question.points)
 }
 
-// Hitung soal yang dicentang
-const checkedCount = computed(() => {
-  return scannedQuestions.value.filter((q) => q.checked).length
-})
+const totalScore = computed(() =>
+  scannedQuestions.value.reduce((sum, question) => sum + (Number(question.score) || 0), 0),
+)
+const maxScore = computed(() =>
+  scannedQuestions.value.reduce((sum, question) => sum + (Number(question.points) || 0), 0),
+)
+const canSubmitScan = computed(
+  () =>
+    scannedQuestions.value.length > 0 &&
+    scannedQuestions.value.every(
+      (question) =>
+        question.soal.trim() &&
+        question.options.length >= 2 &&
+        new Set(question.options.map((option) => option.value)).size === question.options.length &&
+        question.answerKey &&
+        Number.isFinite(Number(question.score)) &&
+        Number(question.score) >= 0 &&
+        Number(question.score) <= Number(question.points),
+    ),
+)
 
-// Simpan soal
-function handleSave() {
-  isSavedModalOpen.value = true
+async function submitScannedResult() {
+  if (isSubmitting.value || !selectedClassId.value || !selectedStudentIds.value.length) return
+  isSubmitting.value = true
+  submissionError.value = ''
+
+  try {
+    const task = await saveScannedSubmission(
+      selectedClassId.value,
+      selectedStudentIds.value[0],
+      scannedQuestions.value.map((question) => ({
+        title: question.soal,
+        options: question.options,
+        selectedOption: question.selectedOption,
+        answerKey: question.answerKey,
+        points: Number(question.points),
+        score: Number(question.score),
+        isCertain: question.isCertain,
+      })),
+      selectedFiles.value[0].name,
+    )
+    savedTaskId.value = task.id
+    isSelectionModalOpen.value = false
+    isSavedModalOpen.value = true
+  } catch (err) {
+    submissionError.value = err.message || 'Gagal mengirim hasil scan. Silakan coba lagi.'
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 // Reset dan scan file baru
 function resetScan() {
   currentStep.value = 'upload'
   isSavedModalOpen.value = false
+  scanError.value = ''
+  scannedQuestions.value = []
   clearAllFiles()
 }
 
 // Teks dinamis kartu bawah saat tahap upload
 const cardTitle = computed(() => {
-  return selectedFiles.value.length > 0
-    ? `${selectedFiles.value.length} File Berhasil Ditambahkan!`
-    : 'Koreksi Jawaban Menggunakan AI'
+  return selectedFiles.value.length > 0 ? 'Foto siap dipindai' : 'Koreksi Jawaban Menggunakan AI'
 })
 
 const cardSubtitle = computed(() => {
-  return selectedFiles.value.length > 0
-    ? 'Anda dapat menambahkan foto lagi atau klik tombol di bawah untuk mulai memindai.'
-    : 'Mendukung multi-upload: JPG, PNG, PDF, Word'
+  return 'Unggah satu foto lembar soal pilihan ganda yang sudah dijawab (JPG, PNG, atau WEBP).'
 })
 
 const buttonText = computed(() => {
-  return selectedFiles.value.length > 0 ? 'Mulai Koreksi AI' : 'Tambahkan Foto / File Anda'
+  return selectedFiles.value.length > 0 ? 'Mulai Scan AI' : 'Pilih Foto Lembar Jawaban'
 })
 </script>
 
@@ -341,13 +344,12 @@ const buttonText = computed(() => {
     <!-- TAHAP 1: UPLOAD DOKUMEN                    -->
     <!-- ========================================== -->
     <div v-if="currentStep === 'upload'" class="space-y-4 sm:space-y-[22px]">
-      <!-- Input file tersembunyi dengan dukungan multiple file -->
+      <!-- Satu lembar scan dikaitkan dengan satu mahasiswa -->
       <input
         ref="fileInput"
         type="file"
-        multiple
         class="hidden"
-        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+        accept="image/jpeg,image/png,image/webp"
         @change="onFileChange"
       />
 
@@ -376,6 +378,9 @@ const buttonText = computed(() => {
           class="mt-2 text-sm text-[#555555] transition-all duration-300 sm:mt-3 sm:text-base lg:text-lg"
         >
           {{ cardSubtitle }}
+        </p>
+        <p v-if="scanError" role="alert" class="mt-3 text-sm font-medium text-red-600">
+          {{ scanError }}
         </p>
 
         <!-- Informasi file-file yang terpilih (Multi-upload Support) -->
@@ -423,19 +428,19 @@ const buttonText = computed(() => {
           <button
             type="button"
             class="cursor-pointer rounded-xl bg-[#2864E8] px-8 py-3.5 text-base font-semibold text-white shadow-md transition duration-200 hover:bg-[#1f52c4] hover:shadow-lg active:scale-[0.98] sm:px-10 sm:py-4 sm:text-lg"
-            @click="selectedFiles.length > 0 ? openClassSelection() : triggerFileInput()"
+            @click="selectedFiles.length > 0 ? startScanning() : triggerFileInput()"
           >
             {{ buttonText }}
           </button>
 
-          <!-- Opsi Tambah Foto Lagi saat sudah ada foto yang dipilih -->
+          <!-- Ganti foto sebelum memulai scan -->
           <button
             v-if="selectedFiles.length > 0"
             type="button"
             class="cursor-pointer rounded-xl border border-slate-300 bg-white px-5 py-3.5 text-sm font-semibold text-[#555555] transition hover:bg-slate-50 sm:text-base sm:py-4"
             @click="triggerFileInput"
           >
-            + Tambah Foto Lain
+            Ganti Foto
           </button>
         </div>
       </section>
@@ -529,87 +534,116 @@ const buttonText = computed(() => {
         />
       </section>
 
-      <!-- Kartu soal hasil scan -->
+      <section class="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
+        <h2 class="text-lg font-bold text-[#222222]">Periksa hasil scan dan nilai</h2>
+        <p class="mt-1 text-sm text-[#666666]">
+          Periksa teks soal dan opsi, koreksi jawaban yang terbaca, tentukan kunci jawaban, lalu
+          sesuaikan nilai jika diperlukan.
+        </p>
+        <p class="mt-3 text-sm font-semibold text-[#2864E8]">
+          Nilai sementara: {{ totalScore }} / {{ maxScore }} poin
+        </p>
+      </section>
+
       <div class="space-y-4 sm:space-y-[18px]">
         <div
-          v-for="(item, index) in scannedQuestions"
+          v-for="item in scannedQuestions"
           :key="item.id"
-          class="flex items-start justify-between gap-4 rounded-2xl bg-white p-4 shadow-sm transition duration-200 hover:shadow-md sm:p-6"
+          class="rounded-2xl bg-white p-4 shadow-sm transition duration-200 hover:shadow-md sm:p-6"
         >
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0">
             <h2 class="text-base font-semibold text-[#222222] sm:text-lg">
-              {{ item.soal }}
+              Soal {{ item.nomor }}. {{ item.soal }}
             </h2>
             <div class="my-2 h-px w-full bg-[#d9d9d9]"></div>
 
-            <div v-if="item.type === 'multiple_choice'" class="space-y-1">
+            <div v-if="item.options.length" class="space-y-1">
               <div
                 v-for="option in item.options"
                 :key="option.value"
-                class="flex items-center gap-2.5 text-sm text-[#222222] sm:text-base"
+                class="flex items-start gap-2.5 text-sm text-[#222222] sm:text-base"
               >
                 <span
-                  class="flex size-3.5 shrink-0 items-center justify-center rounded-full border"
-                  :class="
-                    item.selectedOption === option.value ? 'border-[#2864E8]' : 'border-[#999999]'
-                  "
-                >
-                  <span
-                    v-if="item.selectedOption === option.value"
-                    class="size-1.5 rounded-full bg-[#2864E8]"
-                  />
-                </span>
+                  class="mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border"
+                  :class="item.selectedOption === option.value ? 'border-[#2864E8]' : 'border-[#999999]'"
+                ><span v-if="item.selectedOption === option.value" class="size-2 rounded-full bg-[#2864E8]" /></span>
                 {{ option.label }}
               </div>
             </div>
-            <div v-else class="space-y-0.5">
-              <span class="text-xs text-[#888888] sm:text-sm">Jawaban:</span>
-              <p class="text-sm font-medium text-[#222222] sm:text-base">{{ item.jawaban }}</p>
-            </div>
-          </div>
+            <p v-else class="text-sm text-amber-700">
+              Opsi jawaban tidak terbaca. Foto ini belum dapat dikirim untuk penilaian pilihan ganda.
+            </p>
 
-          <div class="flex shrink-0 flex-col items-end justify-between self-stretch">
-            <button
-              type="button"
-              class="flex size-9 cursor-pointer items-center justify-center rounded-lg border transition duration-200 active:scale-95 sm:size-10"
-              :class="
-                item.checked
-                  ? 'border-[#2864E8] text-[#2864E8]'
-                  : 'border-[#d0d0d0] text-transparent hover:border-[#2864E8]'
-              "
-              :aria-label="item.checked ? 'Batalkan centang soal' : 'Centang soal'"
-              @click="toggleQuestionCheck(index)"
-            >
-              <svg
-                class="size-7 transition-all duration-200"
-                :class="item.checked ? 'scale-100 opacity-100' : 'scale-50 opacity-0'"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2.5"
-                  d="M5 13l4 4L19 7"
+            <p v-if="!item.isCertain" class="mt-2 text-sm font-medium text-amber-700">
+              AI ragu membaca tanda jawaban. Mohon periksa dan koreksi jawaban yang terbaca.
+            </p>
+
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+              <label class="space-y-1 text-sm font-medium text-[#444444]">
+                Jawaban yang ditandai siswa
+                <select
+                  v-model="item.selectedOption"
+                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                  @change="updateQuestionScore(item)"
+                >
+                  <option value="">Tidak terdeteksi / kosong</option>
+                  <option v-for="option in item.options" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="space-y-1 text-sm font-medium text-[#444444]">
+                Kunci jawaban dosen
+                <select
+                  v-model="item.answerKey"
+                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                  @change="updateQuestionScore(item)"
+                >
+                  <option value="">Pilih kunci jawaban</option>
+                  <option v-for="option in item.options" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="space-y-1 text-sm font-medium text-[#444444]">
+                Bobot soal
+                <input
+                  v-model.number="item.points"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                  @input="updateQuestionPoints(item)"
                 />
-              </svg>
-            </button>
-            <span class="mt-3 whitespace-nowrap text-[10px] text-[#888888]">
-              {{ item.points }} Poin*
-            </span>
+              </label>
+              <label class="space-y-1 text-sm font-medium text-[#444444]">
+                Nilai mahasiswa
+                <input
+                  v-model.number="item.score"
+                  type="number"
+                  min="0"
+                  :max="item.points"
+                  step="0.5"
+                  class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 3. TOMBOL SIMPAN DI POJOK KANAN BAWAH (Sesuai Foto Mockup Gambar) -->
-      <div class="flex justify-end pt-4 sm:pt-6">
+      <div class="flex flex-col items-end gap-2 pt-4 sm:pt-6">
+        <p v-if="!canSubmitScan" class="text-right text-sm text-amber-700">
+          Lengkapi opsi dan kunci jawaban setiap soal. Nilai harus berada di antara 0 dan bobot soal.
+        </p>
         <button
           type="button"
           class="cursor-pointer rounded-xl border border-white/80 bg-transparent px-10 py-3 text-base font-semibold text-white transition duration-200 hover:bg-white/10 active:scale-95 sm:px-12 sm:py-3.5 sm:text-lg"
-          @click="handleSave"
+          :disabled="!canSubmitScan"
+          :class="{ 'cursor-not-allowed opacity-50': !canSubmitScan }"
+          @click="openClassSelection"
         >
-          Kirim
+          Pilih Kelas & Mahasiswa
         </button>
       </div>
     </div>
@@ -667,6 +701,9 @@ const buttonText = computed(() => {
             </header>
 
             <div class="flex min-h-0 flex-1 flex-col px-5 pb-5 pt-4 sm:px-7 sm:pb-7 sm:pt-5">
+              <p v-if="selectionStep === 'student'" class="mb-2 text-sm text-[#666666]">
+                Satu lembar scan hanya dapat dikaitkan dengan satu mahasiswa.
+              </p>
               <div class="relative flex shrink-0 items-center gap-3">
                 <label class="relative min-w-0 flex-1">
                   <span class="sr-only"
@@ -845,6 +882,9 @@ const buttonText = computed(() => {
                 </template>
               </div>
 
+              <p v-if="submissionError" role="alert" class="mt-3 text-sm font-medium text-red-600">
+                {{ submissionError }}
+              </p>
               <footer class="flex shrink-0 justify-end border-t border-slate-100 pt-4">
                 <button
                   v-if="selectionStep === 'class'"
@@ -858,11 +898,11 @@ const buttonText = computed(() => {
                 <button
                   v-else
                   type="button"
-                  :disabled="selectedStudentIds.length === 0"
+                  :disabled="selectedStudentIds.length === 0 || isSubmitting"
                   class="min-h-12 w-full rounded-xl bg-[#2864E8] px-8 text-base font-semibold text-white transition hover:bg-[#1f50be] disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-[58px] sm:w-auto sm:min-w-[200px] sm:text-lg"
-                  @click="beginCorrection"
+                  @click="submitScannedResult"
                 >
-                  Kirim
+                  {{ isSubmitting ? 'Mengirim...' : 'Kirim Hasil Scan' }}
                 </button>
               </footer>
             </div>
@@ -896,12 +936,13 @@ const buttonText = computed(() => {
           </svg>
         </div>
 
-        <h3 class="mt-5 text-xl font-bold text-[#222222] sm:text-2xl">Soal Berhasil Disimpan!</h3>
+        <h3 class="mt-5 text-xl font-bold text-[#222222] sm:text-2xl">Hasil Scan Terkirim!</h3>
 
         <p class="mt-2 text-sm text-[#666666] sm:text-base">
-          Sebanyak <strong class="text-[#2864E8]">{{ checkedCount }}</strong> dari
-          {{ scannedQuestions.length }} butir soal telah berhasil diverifikasi dan disimpan ke bank
-          kuis.
+          Hasil untuk
+          <strong class="text-[#2864E8]">{{ selectedStudent?.name || selectedStudent?.email }}</strong>
+          telah dikirim ke kelas <strong>{{ selectedClass?.title }}</strong>. Nilai:
+          <strong class="text-[#2864E8]">{{ totalScore }} / {{ maxScore }}</strong>.
         </p>
 
         <!-- Tombol Aksi Modal -->
@@ -909,9 +950,9 @@ const buttonText = computed(() => {
           <button
             type="button"
             class="cursor-pointer rounded-xl bg-[#2864E8] px-6 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#1f52c4] active:scale-95 sm:text-base"
-            @click="router.push('/beranda')"
+            @click="router.push(`/kelas/${selectedClassId}/tugas/${savedTaskId}`)"
           >
-            Lihat di Beranda
+            Lihat Hasil di Kelas
           </button>
           <button
             type="button"
