@@ -162,7 +162,12 @@ BEGIN
         COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
         NEW.raw_user_meta_data->>'password',
         NEW.raw_user_meta_data->>'avatar_url'
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        name = COALESCE(EXCLUDED.name, public.profiles.name),
+        role = COALESCE(EXCLUDED.role, public.profiles.role),
+        password = COALESCE(EXCLUDED.password, public.profiles.password);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -213,6 +218,10 @@ ALTER TABLE public.detail_jawaban ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public profiles are viewable by authenticated users" ON public.profiles;
 CREATE POLICY "Public profiles are viewable by authenticated users" 
 ON public.profiles FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+CREATE POLICY "Users can insert their own profile" 
+ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
 
 DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
 CREATE POLICY "Users can update their own profile" 

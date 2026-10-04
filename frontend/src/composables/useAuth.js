@@ -180,14 +180,16 @@ export function useAuth() {
         authUser = data?.user
       } catch (signUpErr) {
         const msg = (signUpErr.message || '').toLowerCase()
-        // Jika terkena email rate limit / pembatasan email Supabase, fallback langsung ke backend admin register
+        // Jika terkena email rate limit atau user sudah ada di auth.users namun profil belum sinkron,
+        // alihkan ke backend admin register untuk sinkronisasi otomatis ke tabel profiles
         if (
           msg.includes('rate limit') ||
           msg.includes('over_email_send_rate_limit') ||
           msg.includes('exceeded') ||
-          msg.includes('email')
+          msg.includes('already registered') ||
+          msg.includes('already exists')
         ) {
-          console.warn('[useAuth] Email rate limit terdeteksi, beralih ke Backend Admin registration...')
+          console.warn('[useAuth] Beralih ke Backend Admin registration/sync...')
           await registerAdminAPI({
             email: trimmedEmail,
             password,
@@ -195,34 +197,32 @@ export function useAuth() {
             role,
           })
 
-          // Otomatis login dengan kredensial yang baru dibuat
-          return await login({ email: trimmedEmail, password, role })
+          // Pastikan sesi lokal tetap bersih agar user harus login manual
+          await supabase.auth.signOut().catch(() => {})
+          saveLocalUser(null)
+          return { success: true, email: trimmedEmail }
         }
         throw signUpErr
       }
 
       if (authUser) {
-        // Pastikan record profil terisi (trigger akan handle, tapi upsert memastikan keamanan)
-        await supabase.from('profiles').upsert({
-          id: authUser.id,
-          email: trimmedEmail,
-          name: displayName,
-          role,
-          password,
-        })
-
-        const userData = {
-          id: authUser.id,
-          email: trimmedEmail,
-          name: displayName,
-          role,
-          password,
-          birthDate: '',
-          phone: '',
-          gender: '',
+        // Coba upsert profiles jika sesi ada, atau biarkan trigger handle_new_user di Postgres
+        try {
+          await supabase.from('profiles').upsert({
+            id: authUser.id,
+            email: trimmedEmail,
+            name: displayName,
+            role,
+            password,
+          })
+        } catch (pErr) {
+          console.warn('[useAuth] Profile trigger will handle or upsert ignored:', pErr)
         }
-        saveLocalUser(userData)
-        return userData
+
+        // Pastikan pengguna di-logout sehingga harus login terlebih dahulu
+        await supabase.auth.signOut().catch(() => {})
+        saveLocalUser(null)
+        return { success: true, email: trimmedEmail }
       }
     } finally {
       authLoading.value = false

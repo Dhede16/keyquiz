@@ -46,7 +46,14 @@ async function onSubmit() {
       name: fullName.value,
       role: role.value,
     })
-    router.push('/beranda')
+    router.push({
+      path: '/login',
+      query: {
+        registered: 'true',
+        email: email.value.trim(),
+        role: role.value,
+      },
+    })
   } catch (err) {
     errorMsg.value = err.message || 'Gagal mendaftar. Silakan coba lagi.'
   } finally {
