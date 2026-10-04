@@ -2,10 +2,9 @@
 import { ref, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
-import DeadlineModal from '@/components/ui/DeadlineModal.vue'
 import aiBannerImg from '@/assets/images/bennerbuatsoal_ai.png'
 import sendFillIcon from '@/assets/icons/Send_fill.svg'
-import { addTaskToClass, classes } from '@/composables/useClasses.js'
+import { classes } from '@/composables/useClasses.js'
 import { generateQuizAI } from '@/services/api.js'
 
 const route = useRoute()
@@ -54,15 +53,10 @@ const inputPrompt = ref('')
 const isSubmitted = ref(false)
 const userMessage = ref('')
 const suggestedTaskTitle = ref('')
-const isAgreed = ref(false)
-const isDeadlineModalOpen = ref(false)
-const isSuccessModalOpen = ref(false)
 const chatScrollAreaRef = ref(null)
 const fileInput = ref(null)
 const attachedFiles = ref([])
 const submittedAttachments = ref([])
-const showScore = ref(true)
-const showCorrectAnswers = ref(false)
 
 const isGeneratingAi = ref(false)
 const currentAiDisplayResponse = ref(defaultAiResponse)
@@ -214,40 +208,19 @@ function handleKeyDown(e) {
 }
 
 function handleAgree() {
-  isAgreed.value = true
-  isDeadlineModalOpen.value = true
-}
-
-function saveAiTask(deadline) {
-  const deadlineDate = new Date(`${deadline.date}T12:00:00`)
-  const finalQuestions = generatedQuestionsList.value.length > 0 
-    ? generatedQuestionsList.value 
+  // Navigasi ke halaman buat soal manual dengan data AI di state
+  const finalQuestions = generatedQuestionsList.value.length > 0
+    ? generatedQuestionsList.value
     : parseGeneratedQuestions(currentAiDisplayResponse.value || defaultAiResponse)
 
-  addTaskToClass(classId.value, {
-    title: deadline.title || suggestedTaskTitle.value || 'Kuis AI',
-    description: 'Soal dibuat otomatis dengan AI.',
-    date: deadlineDate.toLocaleDateString('id-ID', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }),
-    deadlineDate: deadline.date,
-    deadlineTime: deadline.time,
-    deadlineTimezone: 'WITA',
-    dueAt: `${deadline.date}T${deadline.time}:00+08:00`,
-    questions: finalQuestions,
-    showScore: showScore.value,
-    showCorrectAnswers: showCorrectAnswers.value,
+  router.push({
+    name: 'create-quiz-manual',
+    params: { id: classId.value },
+    state: {
+      aiTitle: suggestedTaskTitle.value || userMessage.value || 'Kuis AI',
+      aiQuestions: JSON.stringify(finalQuestions),
+    },
   })
-  isDeadlineModalOpen.value = false
-  isSuccessModalOpen.value = true
-}
-
-function handleCloseSuccess() {
-  isSuccessModalOpen.value = false
-  router.push(`/kelas/${classId.value}`)
 }
 </script>
 
@@ -544,58 +517,6 @@ function handleCloseSuccess() {
         </div>
       </div>
     </div>
-
-    <DeadlineModal
-      :open="isDeadlineModalOpen"
-      :show-title="true"
-      :initial-title="suggestedTaskTitle || userMessage || 'Kuis AI'"
-      @close="isDeadlineModalOpen = false"
-      @save="saveAiTask"
-    />
-
-    <!-- Modal Konfirmasi Soal Berhasil Disimpan -->
-    <Transition name="modal-fade">
-      <div
-        v-if="isSuccessModalOpen"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-        role="dialog"
-        aria-modal="true"
-        @click.self="handleCloseSuccess"
-      >
-        <div class="w-full max-w-md rounded-[28px] bg-white p-6 sm:p-8 text-center shadow-2xl">
-          <div
-            class="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 sm:size-20"
-          >
-            <svg class="size-8 sm:size-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2.5"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-          </div>
-
-          <h3 class="mt-5 text-xl font-bold text-[#222222] sm:text-2xl">Soal Berhasil Disimpan!</h3>
-
-          <p class="mt-2 text-sm text-[#666666] sm:text-base leading-relaxed">
-            Butir soal esai dan pilihan ganda buatan AI telah disetujui dan ditambahkan ke tugas
-            kelas <strong>{{ currentClass.title }}</strong
-            >.
-          </p>
-
-          <div class="mt-7 flex justify-center">
-            <button
-              type="button"
-              class="cursor-pointer rounded-xl bg-[#2864E8] px-8 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#1f50be] active:scale-95 sm:text-base"
-              @click="handleCloseSuccess"
-            >
-              Kembali ke Daftar Tugas
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
   </DashboardLayout>
 </template>
 

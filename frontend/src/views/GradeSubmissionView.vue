@@ -298,16 +298,30 @@ function isAnswerCorrect(question) {
                     Rentang: 0 – {{ question.points }}
                     <span
                       v-if="question.type === 'multiple_choice' && isAnswerCorrect(question) !== null"
-                      class="ml-1 font-medium"
+                      class="ml-1 font-semibold"
                       :class="isAnswerCorrect(question) ? 'text-blue-600' : 'text-red-500'"
                     >
-                      · {{ isAnswerCorrect(question) ? 'Auto: nilai penuh' : 'Auto: 0' }} (bisa diubah)
+                      · {{ isAnswerCorrect(question) ? 'Benar (nilai mutlak)' : 'Salah (nilai mutlak 0)' }}
                     </span>
+                    <span
+                      v-else-if="question.type !== 'multiple_choice'"
+                      class="ml-1 text-[#aaaaaa]"
+                    >· Bisa diubah</span>
                   </p>
                 </div>
                 <div class="flex items-center gap-2">
+                  <!-- PG + ada kunci: nilai mutlak, tidak bisa diubah -->
+                  <span
+                    v-if="!isDone && !submission.graded && question.type === 'multiple_choice' && isAnswerCorrect(question) !== null"
+                    class="min-w-[4rem] rounded-xl px-4 py-2 text-center text-sm font-bold"
+                    :class="isAnswerCorrect(question) ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'"
+                    :title="isAnswerCorrect(question) ? 'Nilai penuh — tidak dapat diubah' : 'Jawaban salah, nilai 0 — tidak dapat diubah'"
+                  >
+                    {{ scoreDrafts[question.id] }}
+                  </span>
+                  <!-- Esai / PG tanpa kunci: bisa diubah -->
                   <input
-                    v-if="!isDone && !submission.graded"
+                    v-else-if="!isDone && !submission.graded"
                     type="number"
                     min="0"
                     :max="question.points"

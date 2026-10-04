@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import DeadlineModal from '@/components/ui/DeadlineModal.vue'
@@ -58,6 +58,33 @@ const questions = ref([
     showAnswerKeyModal: false,
   },
 ])
+
+// Jika berasal dari AI, pre-fill judul & soal
+const fromAi = ref(false)
+onMounted(() => {
+  const state = history.state
+  if (state?.aiTitle || state?.aiQuestions) {
+    fromAi.value = true
+    if (state.aiTitle) formTitle.value = state.aiTitle
+    if (state.aiQuestions) {
+      try {
+        const parsed = JSON.parse(state.aiQuestions)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          questions.value = parsed.map((q, i) => ({
+            id: q.id || Date.now() + i,
+            title: q.title || 'Pertanyaan',
+            type: q.type === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
+            options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : [],
+            answerKey: q.answerKey || '',
+            rubric: q.rubric || [],
+            points: Number(q.points) || 10,
+            showAnswerKeyModal: false,
+          }))
+        }
+      } catch { /* ignore parse error */ }
+    }
+  }
+})
 
 // Modal Kunci Jawaban
 const activeQuestionForModal = ref(null)
@@ -153,21 +180,29 @@ function handleCloseSaved() {
     <div class="flex flex-col flex-1 h-full min-h-0">
       <!-- Breadcrumb Navigasi Kembali: Statis di atas tidak ikut scroll -->
       <div class="flex items-center justify-between pb-3 sm:pb-3.5 text-white/90 shrink-0">
-        <button
-          type="button"
-          class="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-white/90 transition hover:text-white hover:translate-x-[-2px] sm:text-sm"
-          @click="router.push(`/kelas/${classId}`)"
-        >
-          <svg class="size-4 sm:size-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2.5"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-          Kembali ke Kelas
-        </button>
+        <div class="flex items-center gap-2.5">
+          <button
+            type="button"
+            class="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-white/90 transition hover:text-white hover:translate-x-[-2px] sm:text-sm"
+            @click="router.push(`/kelas/${classId}`)"
+          >
+            <svg class="size-4 sm:size-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2.5"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            Kembali ke Kelas
+          </button>
+          <span
+            v-if="fromAi"
+            class="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm"
+          >
+            ✨ Dari AI
+          </span>
+        </div>
 
         <div class="flex items-center gap-2">
           <button
@@ -180,6 +215,7 @@ function handleCloseSaved() {
           </button>
         </div>
       </div>
+
 
       <!-- Area Konten yang Scrollable Mandiri di dalam border biru -->
       <div class="relative flex-1 min-h-0 overflow-y-auto pr-1 space-y-4 pb-20 sm:space-y-5">
