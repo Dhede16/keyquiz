@@ -9,17 +9,15 @@ Tugas Anda adalah membuat paket soal ujian (pilihan ganda dan/atau esai) beserta
 """
 
 
-def generate_quiz_ai(prompt_text: str, jumlah_pg: int = 3, jumlah_esai: int = 2) -> dict:
-    """Generate soal PG dan Esai beserta kunci dan rubrik secara terstruktur."""
+def generate_quiz_ai(prompt_text: str) -> dict:
+    """Generate soal beserta kunci dan rubrik berdasarkan instruksi bebas dosen."""
     client = get_groq_client()
 
     user_prompt = f"""
-Buatkan paket soal ujian berdasarkan topik/permintaan berikut:
+Buatkan paket soal ujian berdasarkan instruksi berikut (ikuti PERSIS jumlah dan tipe soal yang diminta):
 "{prompt_text}"
 
-Spesifikasi:
-- Jumlah Soal Pilihan Ganda: {jumlah_pg}
-- Jumlah Soal Esai: {jumlah_esai}
+Jika instruksi tidak menyebut jumlah/tipe soal tertentu, tentukan sendiri yang paling sesuai.
 
 Keluarkan HANYA JSON dengan struktur:
 {{

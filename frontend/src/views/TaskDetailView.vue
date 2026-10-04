@@ -13,7 +13,7 @@ import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
-import { gradeEssay, saveEssayKey } from '@/services/api.js'
+
 
 const route = useRoute()
 const router = useRouter()
@@ -116,83 +116,52 @@ async function submitAnswers() {
   if (!canSubmit.value || !user.value?.email || isSubmitting.value) return
 
   isSubmitting.value = true
-  let score = 0
-  let fullyAutoGraded = true
-  const submittedAnswers = []
+  const submittedAnswers = questions.value.map((question, index) => ({
+    questionId: question.id,
+    value: answers.value[index].trim(),
+    score: null,
+    aiEvaluation: null,
+  }))
 
-  for (let index = 0; index < questions.value.length; index++) {
-    const question = questions.value[index]
-    const value = answers.value[index].trim()
-    let questionScore = 0
-    let aiEvaluation = null
-
-    if (question.type === 'multiple_choice') {
-      if (question.answerKey?.trim() && isAnswerCorrect(question, value)) {
-        questionScore = Number(question.points) || 0
-      }
-      score += questionScore
-    } else {
-      // Soal Esai / Isian Singkat
-      if (question.answerKey?.trim()) {
-        try {
-          const soalIdStr = `soal-${question.id}`
-          const kunciIdStr = `kunci-${question.id}`
-          
-          // Pastikan kunci sudah tersimpan di Vector DB
-          await saveEssayKey({
-            idKunci: kunciIdStr,
-            idSoal: soalIdStr,
-            soal: question.title,
-            kunciTeks: question.answerKey,
-            rubrik: question.rubric || [],
-          }).catch(() => null)
-
-          // Nilai esai dengan AI
-          const res = await gradeEssay({
-            idDetail: `detail-${question.id}-${Date.now()}`,
-            idSoal: soalIdStr,
-            jawabanTeks: value,
-          })
-
-          if (res && typeof res.nilai_ai === 'number') {
-            questionScore = Math.round((res.nilai_ai / 100) * (Number(question.points) || 10))
-            score += questionScore
-            aiEvaluation = res
-          }
-        } catch (e) {
-          console.warn('[AI Essay Grading Fallback]', e)
-          if (isAnswerCorrect(question, value)) {
-            questionScore = Number(question.points) || 0
-            score += questionScore
-          } else {
-            fullyAutoGraded = false
-          }
-        }
-      } else {
-        fullyAutoGraded = false
-      }
-    }
-
-    submittedAnswers.push({
-      questionId: question.id,
-      value,
-      score: questionScore,
-      aiEvaluation,
-    })
-  }
-
-  const savedTask = saveTaskSubmission(currentClass.value.id, currentTask.value.id, {
+  // Jawaban tersimpan, nilai null — menunggu koreksi dosen
+  const savedTask = await saveTaskSubmission(currentClass.value.id, currentTask.value.id, {
     email: user.value.email,
     name: user.value.name,
     answers: submittedAnswers,
-    score: fullyAutoGraded ? score : null,
+    score: null,
     maxScore: maxScore.value,
-    graded: fullyAutoGraded,
+    graded: false,
     submittedAt: new Date().toISOString(),
   })
 
   isSubmitting.value = false
   if (savedTask) isSubmissionSuccessOpen.value = true
+}
+
+// Koreksi manual dosen: kumpulkan nilai per-soal lalu kirim
+const teacherScoreDrafts = ref({})
+const isGrading = ref({})
+
+function initGradeDraft(submission) {
+  if (teacherScoreDrafts.value[submission.email]) return
+  const draft = {}
+  for (const q of questions.value) {
+    const ans = submission.answers?.find((a) => a.questionId === q.id)
+    draft[q.id] = ans?.score ?? ''
+  }
+  teacherScoreDrafts.value[submission.email] = draft
+}
+
+async function submitTeacherGrade(submission) {
+  const draft = teacherScoreDrafts.value[submission.email] || {}
+  const total = questions.value.reduce((sum, q) => {
+    const v = Number(draft[q.id])
+    return sum + (Number.isFinite(v) ? v : 0)
+  }, 0)
+  const bounded = Math.min(Math.max(total, 0), submission.maxScore)
+  isGrading.value[submission.email] = true
+  await updateSubmissionScore(classId.value, taskId.value, submission.email, bounded)
+  isGrading.value[submission.email] = false
 }
 
 function saveSettings(key, event) {
@@ -206,6 +175,10 @@ function saveGrade(submission) {
   const boundedScore = Math.min(Math.max(enteredScore, 0), submission.maxScore)
   updateSubmissionScore(classId.value, taskId.value, submission.email, boundedScore)
   gradeDrafts.value[submission.email] = boundedScore
+}
+
+function getSubmittedAnswerForTeacher(submission, question) {
+  return submission.answers?.find((a) => a.questionId === question.id)?.value || '-'
 }
 
 function openStudentResult(student, isDemo = false) {
@@ -360,17 +333,27 @@ function openStudentResult(student, isDemo = false) {
             <p class="mt-1 text-sm text-[#777777]">
               {{
                 studentSubmission.graded
-                  ? 'Tugas sudah dinilai.'
-                  : 'Tugas terkumpul, menunggu penilaian dosen.'
+                  ? 'Tugas sudah dinilai oleh dosen.'
+                  : 'Tugas terkumpul. Menunggu koreksi dosen.'
               }}
             </p>
           </div>
+          <!-- Nilai hanya tampil setelah dosen melakukan koreksi -->
           <p
-            v-if="currentTask.showScore !== false && studentSubmission.graded"
+            v-if="studentSubmission.graded && currentTask.showScore !== false"
             class="text-lg font-bold text-[#2864E8]"
           >
             Nilai {{ studentSubmission.score }}/{{ studentSubmission.maxScore }}
           </p>
+          <span
+            v-else-if="!studentSubmission.graded"
+            class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700"
+          >
+            <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Menunggu koreksi
+          </span>
         </div>
 
         <article
@@ -382,7 +365,7 @@ function openStudentResult(student, isDemo = false) {
           <p class="mt-2 text-sm text-[#666666]">
             Jawaban kamu: {{ getSubmittedAnswer(question, index) }}
           </p>
-          <template v-if="currentTask.showCorrectAnswers && question.answerKey">
+          <template v-if="studentSubmission.graded && currentTask.showCorrectAnswers && question.answerKey">
             <p
               class="mt-2 text-sm font-semibold"
               :class="
@@ -567,40 +550,75 @@ function openStudentResult(student, isDemo = false) {
                   </div>
                 </button>
 
-                <details v-if="!student.isDemo" class="mt-2 text-sm text-[#555555]">
+                <details
+                  v-if="!student.isDemo"
+                  class="mt-2 text-sm text-[#555555]"
+                  @toggle="initGradeDraft(student)"
+                >
                   <summary class="cursor-pointer text-xs font-medium text-[#2864E8]">
-                    Jawaban &amp; penilaian
+                    {{ student.graded ? 'Lihat jawaban & nilai' : 'Koreksi jawaban' }}
                   </summary>
-                  <div class="mt-2 space-y-2 rounded-lg bg-white/90 p-2">
-                    <p v-for="(question, index) in questions" :key="question.id">
-                      <span class="font-medium">{{ question.title }}</span
-                      ><br />
-                      {{
-                        student.answers?.find((answer) => answer.questionId === question.id)
-                          ?.value ||
-                        student.answers?.[index]?.value ||
-                        'Tidak ada jawaban'
-                      }}
-                    </p>
-                    <div v-if="!student.graded" class="flex flex-wrap items-end gap-3 pt-2">
-                      <label class="text-xs font-medium text-[#666666]">
-                        Nilai (maks. {{ student.maxScore }})
+                  <div class="mt-3 space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                    <!-- Per-soal: jawaban mahasiswa + input nilai dosen -->
+                    <div
+                      v-for="question in questions"
+                      :key="question.id"
+                      class="rounded-lg border border-slate-200 bg-white p-3"
+                    >
+                      <p class="text-xs font-semibold text-[#2563EB]">Soal · {{ question.points }} poin</p>
+                      <p class="mt-1 font-medium text-[#333333]">{{ question.title }}</p>
+                      <p class="mt-1.5 text-sm text-[#555555]">
+                        <span class="font-medium text-[#888888]">Jawaban:</span>
+                        {{ getSubmittedAnswerForTeacher(student, question) }}
+                      </p>
+                      <div v-if="question.answerKey" class="mt-1 text-xs text-emerald-700">
+                        Kunci: {{ question.answerKey }}
+                      </div>
+                      <!-- Input nilai per-soal -->
+                      <div v-if="!student.graded" class="mt-2 flex items-center gap-2">
+                        <label class="text-xs font-medium text-[#666666]">
+                          Nilai (0–{{ question.points }})
+                        </label>
                         <input
                           type="number"
                           min="0"
-                          :max="student.maxScore"
-                          :value="gradeDrafts[student.email] ?? ''"
-                          class="mt-1 block w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#2864E8]"
-                          @input="gradeDrafts[student.email] = $event.target.value"
+                          :max="question.points"
+                          class="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:border-[#2864E8]"
+                          :value="(teacherScoreDrafts[student.email] || {})[question.id] ?? ''"
+                          @input="
+                            teacherScoreDrafts[student.email] = {
+                              ...(teacherScoreDrafts[student.email] || {}),
+                              [question.id]: $event.target.value,
+                            }
+                          "
                         />
-                      </label>
+                      </div>
+                      <div v-else class="mt-1 text-xs font-semibold text-[#2864E8]">
+                        Nilai soal ini:
+                        {{
+                          student.answers?.find((a) => a.questionId === question.id)?.score ?? '-'
+                        }}
+                      </div>
+                    </div>
+
+                    <!-- Tombol kirim nilai (muncul hanya sebelum graded) -->
+                    <div v-if="!student.graded" class="flex items-center justify-between pt-1">
+                      <p class="text-xs text-[#888888]">
+                        Total: {{ questions.reduce((s, q) => s + (Number((teacherScoreDrafts[student.email] || {})[q.id]) || 0), 0) }}
+                        / {{ student.maxScore }}
+                      </p>
                       <button
                         type="button"
-                        class="rounded-lg bg-[#2864E8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1f50be]"
-                        @click="saveGrade(student)"
+                        :disabled="isGrading[student.email]"
+                        class="rounded-lg bg-[#2864E8] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#1f50be] disabled:opacity-50"
+                        @click="submitTeacherGrade(student)"
                       >
-                        Simpan nilai
+                        {{ isGrading[student.email] ? 'Mengirim...' : 'Kirim Nilai' }}
                       </button>
+                    </div>
+                    <div v-else class="flex items-center justify-between rounded-lg bg-emerald-50 p-2">
+                      <span class="text-xs font-semibold text-emerald-700">Sudah dinilai</span>
+                      <span class="text-sm font-bold text-emerald-700">{{ student.score }} / {{ student.maxScore }}</span>
                     </div>
                   </div>
                 </details>
