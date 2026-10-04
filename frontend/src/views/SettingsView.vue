@@ -1,6 +1,5 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import { useAuth } from '@/composables/useAuth.js'
 
@@ -9,8 +8,7 @@ import messageIcon from '@/assets/icons/Message.svg'
 import dateIcon from '@/assets/icons/Date_range.svg'
 import phoneIcon from '@/assets/icons/Tablet.svg'
 
-const router = useRouter()
-const { user, login } = useAuth()
+const { user, updateProfile } = useAuth()
 
 // Mode: false = Tampilan Info Profil, true = Mode Edit Formulir
 const isEditing = ref(false)
@@ -18,15 +16,49 @@ const isEditing = ref(false)
 const fileInputRef = ref(null)
 const avatarUrl = ref(null)
 const saveSuccess = ref(false)
+const isSaving = ref(false)
+const saveError = ref('')
 
 const form = ref({
-  fullName: user.value?.name || 'Ahmad Fauzi, M.Kom.',
-  email: user.value?.email || 'ahmad.fauzi@unsil.ac.id',
-  birthDate: '12/08/1992',
-  phone: '081234567890',
-  gender: 'laki-laki',
+  fullName: user.value?.name || '',
+  email: user.value?.email || '',
+  birthDate: user.value?.birthDate || '',
+  phone: user.value?.phone || '',
+  gender: user.value?.gender || '',
 })
 const savedForm = ref({ ...form.value })
+
+watch(user, (currentUser) => {
+  if (!currentUser || isEditing.value) return
+  form.value = {
+    fullName: currentUser.name || '',
+    email: currentUser.email || '',
+    birthDate: currentUser.birthDate || '',
+    phone: currentUser.phone || '',
+    gender: currentUser.gender || '',
+  }
+  savedForm.value = { ...form.value }
+})
+
+const formattedBirthDate = computed(() => {
+  if (!form.value.birthDate) return '-'
+  const [year, month, day] = form.value.birthDate.split('-')
+  return `${day}/${month}/${year}`
+})
+
+const formattedGender = computed(() => {
+  if (form.value.gender === 'laki-laki') return 'Laki-Laki'
+  if (form.value.gender === 'perempuan') return 'Perempuan'
+  return '-'
+})
+
+const maxBirthDate = computed(() => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+})
 
 function triggerPhotoUpload() {
   fileInputRef.value?.click()
@@ -42,20 +74,34 @@ function handlePhotoChange(event) {
   }
 }
 
-function handleSave() {
-  saveSuccess.value = true
-  // Update state auth sederhana
-  if (user.value) {
-    login({ email: form.value.email, name: form.value.fullName, role: user.value.role })
-  }
-
-  setTimeout(() => {
-    saveSuccess.value = false
+async function handleSave() {
+  saveError.value = ''
+  saveSuccess.value = false
+  isSaving.value = true
+  try {
+    await updateProfile({
+      name: form.value.fullName,
+      birthDate: form.value.birthDate,
+      phone: form.value.phone,
+      gender: form.value.gender,
+    })
+    form.value.email = user.value?.email || form.value.email
+    savedForm.value = { ...form.value }
+    saveSuccess.value = true
     isEditing.value = false
-  }, 800)
+    setTimeout(() => {
+      saveSuccess.value = false
+    }, 2500)
+  } catch (error) {
+    console.error('[Pengaturan Profil] Gagal menyimpan profil:', error)
+    saveError.value = 'Profil gagal disimpan. Periksa koneksi lalu coba lagi.'
+  } finally {
+    isSaving.value = false
+  }
 }
 
 function startEditing() {
+  saveError.value = ''
   savedForm.value = { ...form.value }
   isEditing.value = true
 }
@@ -170,7 +216,7 @@ function cancelEditing() {
               >Tanggal Lahir</span
             >
             <p class="mt-1 text-sm sm:text-base font-semibold text-[#222222]">
-              {{ form.birthDate || '-' }}
+              {{ formattedBirthDate }}
             </p>
           </div>
 
@@ -190,7 +236,7 @@ function cancelEditing() {
               >Jenis Kelamin</span
             >
             <p class="mt-1 text-sm sm:text-base font-semibold text-[#222222] capitalize">
-              {{ form.gender }}
+              {{ formattedGender }}
             </p>
           </div>
         </div>
@@ -283,6 +329,7 @@ function cancelEditing() {
                   v-model="form.fullName"
                   type="text"
                   placeholder="Masukkan nama lengkap"
+                  required
                   class="h-12 w-full rounded-xl border border-[#808080] bg-white pl-13 pr-4 text-sm text-[#222222] outline-none transition focus:border-[#2864E8] focus:ring-2 focus:ring-[#2864E8]/20 sm:h-14 sm:text-base"
                 />
               </div>
@@ -303,8 +350,8 @@ function cancelEditing() {
                   id="email"
                   v-model="form.email"
                   type="email"
-                  placeholder="Masukkan email"
-                  class="h-12 w-full rounded-xl border border-[#808080] bg-white pl-13 pr-4 text-sm text-[#222222] outline-none transition focus:border-[#2864E8] focus:ring-2 focus:ring-[#2864E8]/20 sm:h-14 sm:text-base"
+                  readonly
+                  class="h-12 w-full cursor-not-allowed rounded-xl border border-[#808080] bg-slate-50 pl-13 pr-4 text-sm text-[#666666] outline-none sm:h-14 sm:text-base"
                 />
               </div>
             </div>
@@ -326,8 +373,8 @@ function cancelEditing() {
                 <input
                   id="birthDate"
                   v-model="form.birthDate"
-                  type="text"
-                  placeholder="DD/MM/YYYY"
+                  type="date"
+                  :max="maxBirthDate"
                   class="h-12 w-full rounded-xl border border-[#808080] bg-white pl-13 pr-4 text-sm text-[#222222] outline-none transition focus:border-[#2864E8] focus:ring-2 focus:ring-[#2864E8]/20 sm:h-14 sm:text-base"
                 />
               </div>
@@ -370,6 +417,7 @@ function cancelEditing() {
                     v-model="form.gender"
                     type="radio"
                     value="laki-laki"
+                    name="gender"
                     class="size-4.5 cursor-pointer accent-[#2864E8]"
                   />
                   <span>Laki-Laki</span>
@@ -382,6 +430,7 @@ function cancelEditing() {
                     v-model="form.gender"
                     type="radio"
                     value="perempuan"
+                    name="gender"
                     class="size-4.5 cursor-pointer accent-[#2864E8]"
                   />
                   <span>Perempuan</span>
@@ -402,12 +451,16 @@ function cancelEditing() {
               <span v-if="saveSuccess" class="text-sm font-semibold text-emerald-600 transition">
                 ✓ Berhasil disimpan
               </span>
+              <span v-if="saveError" role="alert" class="text-sm font-semibold text-red-600">
+                {{ saveError }}
+              </span>
 
               <button
                 type="submit"
+                :disabled="isSaving"
                 class="cursor-pointer rounded-xl bg-[#2864E8] px-10 py-3 text-base font-semibold text-white shadow-md transition duration-200 hover:bg-[#1f52c4] hover:shadow-lg active:scale-[0.98] sm:px-12 sm:py-3.5"
               >
-                Simpan
+                {{ isSaving ? 'Menyimpan...' : 'Simpan' }}
               </button>
             </div>
           </div>

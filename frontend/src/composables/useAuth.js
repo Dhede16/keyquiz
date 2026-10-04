@@ -54,6 +54,9 @@ async function initAuthSession() {
         name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
         role: profile?.role || session.user.user_metadata?.role || 'student',
         password: profile?.password || session.user.user_metadata?.password || '',
+        birthDate: profile?.birth_date || '',
+        phone: profile?.phone || '',
+        gender: profile?.gender || '',
       }
       saveLocalUser(userData)
     }
@@ -77,6 +80,9 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
       role: profile?.role || session.user.user_metadata?.role || 'student',
       password: profile?.password || session.user.user_metadata?.password || '',
+      birthDate: profile?.birth_date || '',
+      phone: profile?.phone || '',
+      gender: profile?.gender || '',
     }
     saveLocalUser(userData)
   } else if (event === 'SIGNED_OUT') {
@@ -123,6 +129,9 @@ export function useAuth() {
             name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
             role: profile?.role || role || data.user.user_metadata?.role || 'teacher',
             password: profile?.password || password || '',
+            birthDate: profile?.birth_date || '',
+            phone: profile?.phone || '',
+            gender: profile?.gender || '',
           }
           saveLocalUser(userData)
           return userData
@@ -208,6 +217,9 @@ export function useAuth() {
           name: displayName,
           role,
           password,
+          birthDate: '',
+          phone: '',
+          gender: '',
         }
         saveLocalUser(userData)
         return userData
@@ -215,6 +227,36 @@ export function useAuth() {
     } finally {
       authLoading.value = false
     }
+  }
+
+  async function updateProfile({ name, birthDate, phone, gender }) {
+    if (!user.value?.id) {
+      throw new Error('Sesi pengguna tidak ditemukan. Silakan masuk kembali.')
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        name: name.trim(),
+        birth_date: birthDate || null,
+        phone: phone.trim() || null,
+        gender: gender || null,
+      })
+      .eq('id', user.value.id)
+      .select('name, birth_date, phone, gender')
+      .single()
+
+    if (error) throw error
+
+    const userData = {
+      ...user.value,
+      name: data.name,
+      birthDate: data.birth_date || '',
+      phone: data.phone || '',
+      gender: data.gender || '',
+    }
+    saveLocalUser(userData)
+    return userData
   }
 
   /**
@@ -238,6 +280,7 @@ export function useAuth() {
     authLoading,
     login,
     register,
+    updateProfile,
     logout,
   }
 }

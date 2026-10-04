@@ -25,9 +25,16 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     role TEXT NOT NULL CHECK (role IN ('teacher', 'student')) DEFAULT 'student',
     password TEXT,
     avatar_url TEXT,
+    birth_date DATE,
+    phone TEXT,
+    gender TEXT CHECK (gender IN ('laki-laki', 'perempuan')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS birth_date DATE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('laki-laki', 'perempuan'));
 
 -- ==============================================================================
 -- 4. TABEL KELAS
