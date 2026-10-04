@@ -41,6 +41,19 @@ def test_nilai_esai_empty_input():
     assert res["status"] == "Jawaban kosong"
     print("[PASS] Empty essay submission edge case PASSED")
 
+def test_nilai_esai_uses_embedding_similarity():
+    with patch.object(es.es, "buat_embedding", return_value=[0.1, 0.2]) as embed, \
+         patch.object(es.es, "cari_kunci", return_value={"similarity": 72.346}), \
+         patch.object(es.es, "simpan_jawaban") as save_answer:
+        res = es.nilai_esai("detail-2", "soal-1", "jawaban mahasiswa")
+
+    assert res["similarity"] == 72.35
+    assert res["nilai_ai"] == 72.35
+    assert res["kategori"] == "Cukup"
+    embed.assert_called_once_with("jawaban mahasiswa")
+    save_answer.assert_called_once_with("detail-2", "soal-1", "jawaban mahasiswa", [0.1, 0.2])
+    print("[PASS] Essay score is the vector similarity percentage PASSED")
+
 def test_scan_service_cleaning_and_scoring():
     raw_pg = {
         "jawaban": [
@@ -90,8 +103,9 @@ if __name__ == "__main__":
     test_health_endpoint()
     test_tentukan_kategori()
     test_nilai_esai_empty_input()
+    test_nilai_esai_uses_embedding_similarity()
     test_scan_service_cleaning_and_scoring()
     test_api_validation_errors()
     print("=" * 60)
-    print("ALL AUDIT UNIT & INTEGRATION TESTS PASSED (5/5)!")
+    print("ALL AUDIT UNIT & INTEGRATION TESTS PASSED (6/6)!")
     print("=" * 60)

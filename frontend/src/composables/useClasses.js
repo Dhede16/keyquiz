@@ -227,14 +227,30 @@ async function syncClassesFromSupabase(userEmail = null) {
             score: jm.total_score,
             graded: jm.status === 'graded',
             submittedAt: jm.submitted_at,
-            answers: (jm.detail_jawaban || []).map((dj) => ({
-              id: dj.id,
-              questionId: dj.soal_id,
-              value: dj.jawaban_teks,
-              score: dj.nilai_final ?? dj.nilai_ai,
-              feedback: dj.teacher_feedback,
-              rubricEvaluation: dj.rubric_evaluation,
-            })),
+            answers: (jm.detail_jawaban || []).map((dj) => {
+              const question = formattedQuestions.find((item) => item.id === dj.soal_id)
+              const similarity = dj.similarity_score ?? dj.nilai_ai
+              const aiScore =
+                similarity != null && question
+                  ? Math.round((Number(similarity) / 100) * (Number(question.points) || 10))
+                  : null
+
+              return {
+                id: dj.id,
+                questionId: dj.soal_id,
+                value: dj.jawaban_teks,
+                score: dj.nilai_final ?? aiScore,
+                feedback: dj.teacher_feedback,
+                rubricEvaluation: dj.rubric_evaluation,
+                aiEvaluation:
+                  similarity == null
+                    ? null
+                    : {
+                        similarity: Number(similarity),
+                        nilai_ai: Number(similarity),
+                      },
+              }
+            }),
           }))
 
           return {
@@ -499,7 +515,7 @@ async function saveTaskSubmission(classId, taskId, submission) {
             submission_id: subData.id,
             soal_id: ans.questionId,
             jawaban_teks: ans.value || '',
-            nilai_final: ans.score ?? null,
+            nilai_final: ans.aiEvaluation ? null : (ans.score ?? null),
             teacher_feedback: ans.feedback || null,
           }
 
@@ -509,9 +525,6 @@ async function saveTaskSubmission(classId, taskId, submission) {
             }
             if (typeof ans.aiEvaluation.nilai_ai === 'number') {
               detailRow.nilai_ai = ans.aiEvaluation.nilai_ai
-            }
-            if (ans.aiEvaluation.evaluasi_rubrik) {
-              detailRow.rubric_evaluation = ans.aiEvaluation.evaluasi_rubrik
             }
           }
 
@@ -543,7 +556,7 @@ function updateTaskSettings(classId, taskId, settings) {
   return updated
 }
 
-async function updateSubmissionScore(classId, taskId, email, score) {
+async function updateSubmissionScore(classId, taskId, email, score, questionScores = null) {
   const updated = updateTask(classId, taskId, (task) => {
     const submission = task.submissions?.find(
       (item) => item.email.trim().toLowerCase() === email.trim().toLowerCase(),
@@ -552,9 +565,17 @@ async function updateSubmissionScore(classId, taskId, email, score) {
 
     submission.score = score
     submission.graded = true
+
+    if (questionScores && Array.isArray(submission.answers)) {
+      submission.answers.forEach((ans) => {
+        if (questionScores[ans.questionId] !== undefined) {
+          ans.score = Number(questionScores[ans.questionId])
+        }
+      })
+    }
   })
 
-  // Sinkronisasi update nilai ke tabel `jawaban_mahasiswa` di Supabase
+  // Sinkronisasi update nilai ke tabel `jawaban_mahasiswa` & `detail_jawaban` di Supabase
   try {
     const { data: profiles } = await supabase
       .from('profiles')
@@ -563,7 +584,7 @@ async function updateSubmissionScore(classId, taskId, email, score) {
       .single()
 
     if (profiles?.id) {
-      await supabase
+      const { data: jm } = await supabase
         .from('jawaban_mahasiswa')
         .update({
           total_score: score,
@@ -572,6 +593,20 @@ async function updateSubmissionScore(classId, taskId, email, score) {
         })
         .eq('tugas_id', taskId)
         .eq('student_id', profiles.id)
+        .select('id')
+        .maybeSingle()
+
+      if (jm?.id && questionScores) {
+        for (const [soalId, qScore] of Object.entries(questionScores)) {
+          await supabase
+            .from('detail_jawaban')
+            .update({
+              nilai_final: Number(qScore),
+            })
+            .eq('submission_id', jm.id)
+            .eq('soal_id', soalId)
+        }
+      }
     }
   } catch (err) {
     console.warn('[Supabase DB] Gagal update nilai jawaban_mahasiswa:', err.message)

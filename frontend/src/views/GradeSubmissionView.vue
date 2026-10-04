@@ -72,13 +72,25 @@ async function submitGrade() {
   if (isSubmitting.value || !submission.value) return
   isSubmitting.value = true
   const bounded = Math.min(Math.max(totalInput.value, 0), maxScore.value)
-  await updateSubmissionScore(classId.value, taskId.value, studentEmail.value, bounded)
+  await updateSubmissionScore(
+    classId.value,
+    taskId.value,
+    studentEmail.value,
+    bounded,
+    scoreDrafts.value,
+  )
   isSubmitting.value = false
   isDone.value = true
 }
 
 function getStudentAnswer(question) {
   return submission.value?.answers?.find((a) => a.questionId === question.id)?.value || '-'
+}
+
+function getStudentAiEvaluation(question) {
+  return (
+    submission.value?.answers?.find((a) => a.questionId === question.id)?.aiEvaluation || null
+  )
 }
 
 function isAnswerCorrect(question) {
@@ -273,20 +285,99 @@ function isAnswerCorrect(question) {
               </div>
 
               <!-- Jawaban Mahasiswa (esai / jawaban singkat saja — PG sudah terlihat di opsi) -->
-              <div v-if="question.type !== 'multiple_choice'" class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p class="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#888888]">
-                  Jawaban Mahasiswa
-                </p>
-                <p class="text-sm font-medium text-[#333333] sm:text-base">
-                  {{ getStudentAnswer(question) }}
-                </p>
+              <div
+                v-if="question.type !== 'multiple_choice'"
+                class="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div>
+                  <p class="mb-1 text-[10px] font-bold uppercase tracking-widest text-[#888888]">
+                    Jawaban Mahasiswa
+                  </p>
+                  <p class="text-sm font-medium text-[#333333] sm:text-base">
+                    {{ getStudentAnswer(question) }}
+                  </p>
+                </div>
+
                 <!-- Kunci esai -->
+                <div v-if="question.answerKey" class="border-t border-slate-200 pt-2.5">
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-[#888888]">
+                    Kunci Jawaban Acuan
+                  </p>
+                  <p class="mt-0.5 text-xs font-medium text-emerald-700">
+                    {{ question.answerKey }}
+                  </p>
+                </div>
+
+                <!-- Evaluasi AI / Vector Embedding -->
                 <div
-                  v-if="question.answerKey"
-                  class="mt-3 border-t border-slate-200 pt-3"
+                  v-if="getStudentAiEvaluation(question)"
+                  class="mt-2 rounded-xl border border-blue-200 bg-blue-50/70 p-3.5 text-xs text-blue-950"
                 >
-                  <p class="text-[10px] font-bold uppercase tracking-widest text-[#888888]">Kunci Jawaban</p>
-                  <p class="mt-0.5 text-xs text-emerald-700">{{ question.answerKey }}</p>
+                  <div
+                    class="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200/60 pb-2"
+                  >
+                    <div class="flex items-center gap-1.5 font-bold text-[#2864E8]">
+                      <svg
+                        class="size-4 shrink-0 text-[#2864E8]"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
+                      <span>Penilaian AI (Vector Database / Embedding)</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span
+                        v-if="getStudentAiEvaluation(question).similarity != null"
+                        class="rounded-full bg-blue-100 px-2.5 py-0.5 font-bold text-blue-700"
+                      >
+                        Kemiripan Vektor: {{ getStudentAiEvaluation(question).similarity }}%
+                      </span>
+                      <span
+                        v-if="getStudentAiEvaluation(question).kategori"
+                        class="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800"
+                      >
+                        {{ getStudentAiEvaluation(question).kategori }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p
+                    v-if="getStudentAiEvaluation(question).alasan_ai"
+                    class="mt-2 leading-relaxed text-blue-900/90"
+                  >
+                    {{ getStudentAiEvaluation(question).alasan_ai }}
+                  </p>
+
+                  <!-- Detail Rubrik (jika ada) -->
+                  <div
+                    v-if="getStudentAiEvaluation(question).rubric_results?.length"
+                    class="mt-2.5 space-y-1 border-t border-blue-200/50 pt-2"
+                  >
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-blue-700">
+                      Kriteria Rubrik:
+                    </p>
+                    <div
+                      v-for="(r, rIdx) in getStudentAiEvaluation(question).rubric_results"
+                      :key="rIdx"
+                      class="flex items-start gap-1.5 text-[11px]"
+                    >
+                      <span
+                        :class="
+                          r.fulfilled ? 'font-bold text-emerald-600' : 'font-bold text-rose-500'
+                        "
+                      >
+                        {{ r.fulfilled ? '✓' : '✗' }}
+                      </span>
+                      <span class="text-blue-950">{{ r.criterion }}: {{ r.reason }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

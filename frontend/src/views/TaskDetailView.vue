@@ -13,6 +13,7 @@ import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
+import { gradeEssay, saveEssayKey } from '@/services/api.js'
 
 
 const route = useRoute()
@@ -42,6 +43,7 @@ const currentTask = computed(() => {
 const questions = computed(() => currentTask.value.questions || [])
 const answers = ref([])
 const isSubmissionSuccessOpen = ref(false)
+const submissionError = ref('')
 
 const studentSubmission = computed(() => {
   const email = user.value?.email?.trim().toLowerCase()
@@ -102,6 +104,13 @@ function getSubmittedAnswer(question, index) {
   )
 }
 
+function getSubmittedScore(question, index) {
+  const ans =
+    studentSubmission.value?.answers?.find((answer) => answer.questionId === question.id) ??
+    studentSubmission.value?.answers?.[index]
+  return ans?.score ?? null
+}
+
 function isAnswerCorrect(question, answer) {
   return (
     Boolean(question.answerKey?.trim()) &&
@@ -115,26 +124,74 @@ async function submitAnswers() {
   if (!canSubmit.value || !user.value?.email || isSubmitting.value) return
 
   isSubmitting.value = true
-  const submittedAnswers = questions.value.map((question, index) => ({
-    questionId: question.id,
-    value: answers.value[index].trim(),
-    score: null,
-    aiEvaluation: null,
-  }))
+  submissionError.value = ''
 
-  // Jawaban tersimpan, nilai null — menunggu koreksi dosen
-  const savedTask = await saveTaskSubmission(currentClass.value.id, currentTask.value.id, {
-    email: user.value.email,
-    name: user.value.name,
-    answers: submittedAnswers,
-    score: null,
-    maxScore: maxScore.value,
-    graded: false,
-    submittedAt: new Date().toISOString(),
-  })
+  try {
+    const submittedAnswers = []
 
-  isSubmitting.value = false
-  if (savedTask) isSubmissionSuccessOpen.value = true
+    for (let index = 0; index < questions.value.length; index++) {
+      const question = questions.value[index]
+      const value = answers.value[index].trim()
+      let questionScore = 0
+      let aiEvaluation = null
+
+      if (question.type === 'multiple_choice') {
+        if (question.answerKey?.trim() && isAnswerCorrect(question, value)) {
+          questionScore = Number(question.points) || 0
+        }
+      } else {
+        if (!question.answerKey?.trim()) {
+          throw new Error(`Kunci jawaban untuk soal "${question.title}" belum tersedia.`)
+        }
+
+        const soalIdStr = String(question.id)
+        await saveEssayKey({
+          idKunci: `kunci-${question.id}`,
+          idSoal: soalIdStr,
+          soal: question.title || '',
+          kunciTeks: question.answerKey,
+          rubrik: question.rubric || [],
+        })
+
+        const res = await gradeEssay({
+          idDetail: `detail-${question.id}-${Date.now()}`,
+          idSoal: soalIdStr,
+          jawabanTeks: value,
+        })
+
+        if (typeof res?.nilai_ai !== 'number') {
+          throw new Error(`Penilaian AI untuk soal "${question.title}" tidak menghasilkan nilai.`)
+        }
+
+        questionScore = Math.round((res.nilai_ai / 100) * (Number(question.points) || 10))
+        aiEvaluation = res
+      }
+
+      submittedAnswers.push({
+        questionId: question.id,
+        value,
+        score: questionScore,
+        aiEvaluation,
+      })
+    }
+
+    const savedTask = await saveTaskSubmission(currentClass.value.id, currentTask.value.id, {
+      email: user.value.email,
+      name: user.value.name,
+      answers: submittedAnswers,
+      score: null,
+      maxScore: maxScore.value,
+      graded: false,
+      submittedAt: new Date().toISOString(),
+    })
+
+    if (!savedTask) throw new Error('Jawaban tidak dapat disimpan. Silakan coba lagi.')
+    isSubmissionSuccessOpen.value = true
+  } catch (error) {
+    submissionError.value = error.message || 'Gagal menilai jawaban esai. Silakan coba lagi.'
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 function saveSettings(key, event) {
@@ -265,13 +322,16 @@ function openStudentResult(student) {
           <p class="mt-2 self-end text-[10px] text-[#888888]">{{ question.points }} Poin*</p>
         </section>
 
+        <p v-if="submissionError" role="alert" class="text-sm font-medium text-red-200">
+          {{ submissionError }}
+        </p>
         <div class="flex justify-end">
           <button
             type="submit"
-            :disabled="!canSubmit"
+            :disabled="!canSubmit || isSubmitting"
             class="motion-control rounded-xl border border-white/80 bg-transparent px-10 py-3 text-base font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 sm:px-12 sm:py-3.5 sm:text-lg"
           >
-            Kirim
+            {{ isSubmitting ? 'Menilai dan mengirim...' : 'Kirim' }}
           </button>
         </div>
       </form>
@@ -316,7 +376,19 @@ function openStudentResult(student) {
           :key="question.id"
           class="border-b border-slate-100 py-3 last:border-0"
         >
-          <p class="font-semibold text-[#333333]">{{ question.title }}</p>
+          <div class="flex items-start justify-between gap-2">
+            <p class="font-semibold text-[#333333]">{{ question.title }}</p>
+            <span
+              v-if="
+                studentSubmission.graded &&
+                currentTask.showScore !== false &&
+                getSubmittedScore(question, index) !== null
+              "
+              class="shrink-0 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-bold text-[#2864E8]"
+            >
+              {{ getSubmittedScore(question, index) }} / {{ question.points }} poin
+            </span>
+          </div>
           <p class="mt-2 text-sm text-[#666666]">
             Jawaban kamu: {{ getSubmittedAnswer(question, index) }}
           </p>
