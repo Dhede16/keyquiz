@@ -5,6 +5,8 @@ import { useAuth } from '@/composables/useAuth.js'
 import {
   addClass,
   classes,
+  deleteClass,
+  leaveClass,
   getClassesForStudent,
   joinClassByCode,
 } from '@/composables/useClasses.js'
@@ -51,6 +53,41 @@ const isCreateModalOpen = ref(false)
 const isJoinModalOpen = ref(false)
 const joinMessage = ref('')
 const joinMessageIsError = ref(true)
+
+const confirmModal = ref({
+  isOpen: false,
+  type: '', // 'delete' | 'leave'
+  classItem: null,
+})
+
+function confirmDeleteClass(classItem) {
+  confirmModal.value = {
+    isOpen: true,
+    type: 'delete',
+    classItem,
+  }
+}
+
+function confirmLeaveClass(classItem) {
+  confirmModal.value = {
+    isOpen: true,
+    type: 'leave',
+    classItem,
+  }
+}
+
+async function handleConfirmAction() {
+  const { type, classItem } = confirmModal.value
+  if (!classItem) return
+
+  if (type === 'delete') {
+    await deleteClass(classItem.id)
+  } else if (type === 'leave') {
+    studentClasses.value = await leaveClass(user.value?.email, classItem.id)
+  }
+
+  confirmModal.value.isOpen = false
+}
 
 function openCreateModal() {
   isCreateModalOpen.value = true
@@ -174,7 +211,10 @@ function formatDeadline(timestamp) {
             :major="c.major"
             :lecturer="c.lecturer"
             :code="isStudent ? '' : c.code"
+            :is-student="isStudent"
             @click="handleClassClick(c)"
+            @delete="confirmDeleteClass(c)"
+            @leave="confirmLeaveClass(c)"
           />
         </div>
         <p
@@ -201,5 +241,81 @@ function formatDeadline(timestamp) {
       :is-error="joinMessageIsError"
       @join="handleJoinClass"
     />
+
+    <!-- Modal Konfirmasi Hapus / Keluar Kelas -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div
+          v-if="confirmModal.isOpen"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+          @click.self="confirmModal.isOpen = false"
+        >
+          <div
+            class="w-full max-w-[420px] overflow-hidden rounded-[20px] bg-white shadow-2xl transition-all animate-scale-up"
+          >
+            <div class="relative flex items-center justify-center bg-red-600 px-6 py-4">
+              <h2 class="text-lg font-bold text-white tracking-wide sm:text-xl">
+                {{ confirmModal.type === 'delete' ? 'Hapus Kelas' : 'Keluar dari Kelas' }}
+              </h2>
+            </div>
+            <div class="p-6 text-center">
+              <p class="text-sm text-gray-700 sm:text-base leading-relaxed">
+                <template v-if="confirmModal.type === 'delete'">
+                  Apakah Anda yakin ingin menghapus kelas <strong>{{ confirmModal.classItem?.title }}</strong>? Seluruh data tugas dan kuis di kelas ini akan dihapus.
+                </template>
+                <template v-else>
+                  Apakah Anda yakin ingin keluar dari kelas <strong>{{ confirmModal.classItem?.title }}</strong>?
+                </template>
+              </p>
+              <div class="mt-6 flex justify-center gap-3">
+                <button
+                  type="button"
+                  class="cursor-pointer rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition active:scale-95"
+                  @click="confirmModal.isOpen = false"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  class="cursor-pointer rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-red-700 transition active:scale-95"
+                  @click="handleConfirmAction"
+                >
+                  {{ confirmModal.type === 'delete' ? 'Hapus' : 'Keluar' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </DashboardLayout>
 </template>
+
+<style scoped>
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+</style>

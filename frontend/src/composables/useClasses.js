@@ -516,6 +516,63 @@ async function joinClassByCode(email, code) {
   return { status: 'joined', classItem }
 }
 
+/**
+ * Hapus kelas & hapus dari Supabase `kelas`.
+ */
+async function deleteClass(classId) {
+  const strId = String(classId)
+  classes.value = classes.value.filter((c) => String(c.id) !== strId)
+  saveLocal()
+
+  // Hapus di Supabase jika terautentikasi
+  try {
+    const { error } = await supabase.from('kelas').delete().eq('id', classId)
+    if (error) {
+      console.warn('[Supabase DB] Hapus kelas gagal:', error.message)
+    }
+  } catch (err) {
+    console.warn('[Supabase DB] Hapus kelas gagal:', err.message)
+  }
+}
+
+/**
+ * Keluar dari kelas untuk mahasiswa & hapus dari `anggota_kelas`.
+ */
+async function leaveClass(email, classId) {
+  const strId = String(classId)
+  const memberships = getMemberships(email)
+  const updatedMemberships = memberships.filter((id) => String(id) !== strId)
+
+  try {
+    localStorage.setItem(
+      membershipStorageKey(email),
+      JSON.stringify(updatedMemberships),
+    )
+  } catch {
+    // ignore
+  }
+
+  // Hapus dari Supabase jika terautentikasi
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { error } = await supabase
+        .from('anggota_kelas')
+        .delete()
+        .eq('kelas_id', classId)
+        .eq('student_id', user.id)
+
+      if (error) {
+        console.warn('[Supabase DB] Keluar kelas gagal:', error.message)
+      }
+    }
+  } catch (err) {
+    console.warn('[Supabase DB] Keluar kelas gagal:', err.message)
+  }
+
+  return getClassesForStudent(email)
+}
+
 // Jalankan sync saat modul dimuat
 syncClassesFromSupabase()
 
@@ -524,6 +581,8 @@ export {
   isSyncing,
   addClass,
   addTaskToClass,
+  deleteClass,
+  leaveClass,
   getClassesForStudent,
   joinClassByCode,
   saveTaskSubmission,
