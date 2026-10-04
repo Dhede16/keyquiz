@@ -216,9 +216,18 @@ async function startScanning() {
       jenis: 'pilihan_ganda',
     })
     const rows = scanRes?.jawaban_terbaca || []
-    if (rows.some((item) => !item.pertanyaan || !Array.isArray(item.opsi) || item.opsi.length < 2)) {
+    if (
+      rows.some(
+        (item) =>
+          !item.pertanyaan ||
+          !Array.isArray(item.opsi) ||
+          item.opsi.length < 2 ||
+          !item.kunci_jawaban ||
+          !Number.isFinite(Number(item.bobot)),
+      )
+    ) {
       throw new Error(
-        'Backend scan yang sedang berjalan masih memakai format lama dan belum mengirim teks soal serta opsi. Restart backend dari folder backend, lalu coba scan lagi.',
+        'Backend scan belum mengirim kunci jawaban AI dan bobot per soal. Restart backend dari folder backend, lalu scan ulang.',
       )
     }
     scannedQuestions.value = rows.map((item, idx) => ({
@@ -230,9 +239,12 @@ async function startScanning() {
         label: `${String(option.huruf).toUpperCase()}. ${option.teks}`,
       })),
       selectedOption: item.pilihan ? item.pilihan.toUpperCase() : '',
-      answerKey: '',
-      points: 10,
-      score: 0,
+      answerKey: item.kunci_jawaban.toUpperCase(),
+      points: Number(item.bobot),
+      score: Number(item.nilai_ai) || 0,
+      aiScore: Number(item.nilai_ai) || 0,
+      aiKeyIsCertain: item.kunci_yakin === true,
+      aiStatus: item.status_ai,
       isCertain: item.yakin !== false,
     }))
     if (scannedQuestions.value.length === 0) {
@@ -256,19 +268,26 @@ onUnmounted(() => {
 function updateQuestionScore(question) {
   const isCorrect = question.answerKey && question.answerKey === question.selectedOption
   question.score = isCorrect ? Number(question.points) || 0 : 0
+  question.aiScore = question.score
+  question.aiStatus = isCorrect ? 'benar' : question.selectedOption ? 'salah' : 'kosong'
 }
 
 function updateQuestionPoints(question) {
   const points = Number(question.points)
-  question.points = Number.isFinite(points) ? Math.max(points, 0) : 0
-  question.score = Math.min(Number(question.score) || 0, question.points)
+  question.points =
+    Number.isFinite(points) && points >= 0 ? Math.round(points * 100) / 100 : 0
+  updateQuestionScore(question)
 }
 
 const totalScore = computed(() =>
-  scannedQuestions.value.reduce((sum, question) => sum + (Number(question.score) || 0), 0),
+  Math.round(
+    scannedQuestions.value.reduce((sum, question) => sum + (Number(question.score) || 0), 0) * 100,
+  ) / 100,
 )
 const maxScore = computed(() =>
-  scannedQuestions.value.reduce((sum, question) => sum + (Number(question.points) || 0), 0),
+  Math.round(
+    scannedQuestions.value.reduce((sum, question) => sum + (Number(question.points) || 0), 0) * 100,
+  ) / 100,
 )
 const canSubmitScan = computed(
   () =>
@@ -279,10 +298,12 @@ const canSubmitScan = computed(
         question.options.length >= 2 &&
         new Set(question.options.map((option) => option.value)).size === question.options.length &&
         question.answerKey &&
+        Number(question.points) > 0 &&
         Number.isFinite(Number(question.score)) &&
         Number(question.score) >= 0 &&
         Number(question.score) <= Number(question.points),
-    ),
+    ) &&
+    maxScore.value === 100,
 )
 
 async function submitScannedResult() {
@@ -299,6 +320,7 @@ async function submitScannedResult() {
         options: question.options,
         selectedOption: question.selectedOption,
         answerKey: question.answerKey,
+        aiScore: question.aiScore,
         points: Number(question.points),
         score: Number(question.score),
         isCertain: question.isCertain,
@@ -541,7 +563,8 @@ const buttonText = computed(() => {
           sesuaikan nilai jika diperlukan.
         </p>
         <p class="mt-3 text-sm font-semibold text-[#2864E8]">
-          Nilai sementara: {{ totalScore }} / {{ maxScore }} poin
+          Nilai AI: {{ totalScore }} / 100 poin &bull; Total bobot:
+          {{ maxScore }} / 100 poin
         </p>
       </section>
 
@@ -577,6 +600,14 @@ const buttonText = computed(() => {
             <p v-if="!item.isCertain" class="mt-2 text-sm font-medium text-amber-700">
               AI ragu membaca tanda jawaban. Mohon periksa dan koreksi jawaban yang terbaca.
             </p>
+            <p class="mt-2 text-sm text-[#666666]">
+              Kunci saran AI:
+              <strong>{{ item.options.find((option) => option.value === item.answerKey)?.label }}</strong>
+              <span :class="item.aiKeyIsCertain ? 'text-emerald-700' : 'text-amber-700'">
+                ({{ item.aiKeyIsCertain ? 'yakin' : 'perlu diperiksa' }})
+              </span>
+              &bull; Prediksi nilai AI: {{ item.aiScore }} / {{ item.points }}
+            </p>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
               <label class="space-y-1 text-sm font-medium text-[#444444]">
@@ -610,8 +641,8 @@ const buttonText = computed(() => {
                 <input
                   v-model.number="item.points"
                   type="number"
-                  min="0"
-                  step="0.5"
+                  min="0.01"
+                  step="0.01"
                   class="w-full rounded-lg border border-slate-300 px-3 py-2"
                   @input="updateQuestionPoints(item)"
                 />
@@ -623,7 +654,7 @@ const buttonText = computed(() => {
                   type="number"
                   min="0"
                   :max="item.points"
-                  step="0.5"
+                  step="0.01"
                   class="w-full rounded-lg border border-slate-300 px-3 py-2"
                 />
               </label>
@@ -634,7 +665,8 @@ const buttonText = computed(() => {
 
       <div class="flex flex-col items-end gap-2 pt-4 sm:pt-6">
         <p v-if="!canSubmitScan" class="text-right text-sm text-amber-700">
-          Lengkapi opsi dan kunci jawaban setiap soal. Nilai harus berada di antara 0 dan bobot soal.
+          Tentukan kunci untuk setiap soal, pastikan nilai setiap jawaban 0 sampai bobot soal, dan
+          total bobot seluruh soal tepat 100.
         </p>
         <button
           type="button"

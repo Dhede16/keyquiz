@@ -127,7 +127,8 @@ Setelah backend dan frontend berjalan, Anda dapat menguji fitur-fitur unggulan b
 2. **Pemindaian Lembar Jawaban Kertas (Vision AI Scan)**:
    - Buka menu **Scan Soal** pada navigasi sidebar.
    - Unggah satu foto JPG, PNG, atau WEBP berisi soal pilihan ganda beserta tanda jawaban siswa.
-   - Periksa hasil ekstraksi teks soal dan keterangan setiap opsi; koreksi jawaban siswa yang terbaca, tentukan kunci jawaban dan bobot, lalu sesuaikan nilai bila perlu.
+   - Periksa hasil ekstraksi teks soal dan keterangan setiap opsi. AI menyarankan kunci jawaban dan bobot tiap soal, lalu dosen dapat mengubah keduanya serta menyesuaikan nilai jawaban.
+   - Pastikan total bobot semua soal tepat 100 poin sebelum memilih kelas dan mahasiswa untuk mengirim hasil.
    - Pilih kelas dan satu mahasiswa, lalu kirim hasil. Hasil scan, jawaban, dan nilai tersimpan sebagai tugas di kelas tersebut dan dapat dilihat mahasiswa pada detail tugas.
 
 3. **Penilaian Esai Semantik (Hybrid Grading Engine)**:

@@ -1,6 +1,7 @@
 """Service Pemindaian Lembar Jawaban Kertas dengan Vision AI."""
 import base64
 import io
+import math
 from PIL import Image, ImageOps
 from app.core.ai_client import panggil_ai_json
 
@@ -8,10 +9,13 @@ PROMPT_PILIHAN_GANDA = """
 Foto ini adalah lembar soal pilihan ganda yang mungkin sudah dijawab dengan cara menyilang (x) atau melingkari salah satu pilihan.
 
 Tugas Anda: salin teks pertanyaan, seluruh pilihan beserta keterangannya, dan pilihan yang ditandai siswa untuk SETIAP soal pilihan ganda yang terbaca.
+Tentukan juga kunci jawaban paling tepat berdasarkan isi soal dan opsi, serta bobot kepentingan tiap soal dalam persen.
 
 Aturan:
 - Salin teks soal dan pilihan apa adanya; jangan menyimpulkan atau melengkapi teks yang tidak terbaca.
 - Untuk setiap pilihan, keluarkan huruf dan teks keterangannya secara terpisah.
+- Pilih satu kunci jawaban paling tepat dari huruf opsi yang tersedia; jika soal/opsi tidak cukup terbaca untuk menentukan kunci, isi "kunci_yakin" dengan false.
+- Berikan bobot angka positif untuk setiap soal sesuai kompleksitas dan kepentingannya; total seluruh bobot harus tepat 100.
 - Tanda silang/lingkaran bisa menimpa huruf pilihan atau kata di sebelahnya.
 - Pada soal dialog/percakapan, abaikan label dialog (seperti A:, B:, X:, Y:), itu bukan opsi jawaban.
 - Jika pertanyaan, pilihan, atau jawaban yang ditandai tidak terbaca, tulis "[tidak terbaca]" atau null sesuai jenis datanya.
@@ -21,7 +25,7 @@ Aturan:
 - Urutkan nomor soal secara kronologis (1, 2, 3, ...).
 
 Balas HANYA dengan JSON valid tanpa teks lain:
-{"jawaban": [{"nomor": 1, "pertanyaan": "Teks pertanyaan", "opsi": [{"huruf": "a", "teks": "Keterangan opsi A"}, {"huruf": "b", "teks": "Keterangan opsi B"}], "pilihan_dipilih": "a", "yakin": true}]}
+{"jawaban": [{"nomor": 1, "pertanyaan": "Teks pertanyaan", "opsi": [{"huruf": "a", "teks": "Keterangan opsi A"}, {"huruf": "b", "teks": "Keterangan opsi B"}], "pilihan_dipilih": "a", "kunci_jawaban": "b", "kunci_yakin": true, "bobot": 8.33, "yakin": true}]}
 """
 
 PROMPT_ESAI = """
@@ -61,10 +65,34 @@ def baca_dengan_ai(data_gambar: bytes, prompt: str) -> dict:
     }])
 
 
+def normalisasi_bobot(items: list[dict]) -> list[float]:
+    """Skalakan bobot AI menjadi persen dua desimal dengan total tepat 100."""
+    weights = []
+    for item in items:
+        try:
+            bobot = float(item.get("bobot", 1))
+        except (TypeError, ValueError):
+            bobot = 1.0
+        weights.append(bobot if math.isfinite(bobot) and bobot > 0 else 1.0)
+
+    total = sum(weights)
+    exact_units = [weight / total * 10000 for weight in weights]
+    units = [int(value) for value in exact_units]
+    remaining = 10000 - sum(units)
+    order = sorted(range(len(units)), key=lambda index: exact_units[index] - units[index], reverse=True)
+    for index in order[:remaining]:
+        units[index] += 1
+    return [unit / 100 for unit in units]
+
+
 def bersihkan_pilihan_ganda(data: dict) -> list[dict]:
-    """Normalisasi hasil ekstraksi pilihan ganda."""
-    hasil = []
-    for item in data.get("jawaban", []):
+    """Normalisasi pertanyaan, kunci, jawaban siswa, dan bobot AI."""
+    items = data.get("jawaban", [])
+    if not isinstance(items, list) or not items:
+        return []
+
+    normalized = []
+    for item in items:
         pilihan = item.get("pilihan_dipilih", item.get("pilihan"))
         pilihan = pilihan.strip().lower() if isinstance(pilihan, str) else None
         opsi = []
@@ -78,15 +106,37 @@ def bersihkan_pilihan_ganda(data: dict) -> list[dict]:
         huruf_valid = {option["huruf"] for option in opsi}
         if pilihan not in huruf_valid:
             pilihan = None
+        kunci = item.get("kunci_jawaban")
+        kunci = kunci.strip().lower() if isinstance(kunci, str) else None
+        if kunci not in huruf_valid:
+            kunci = None
         nomor = int(item["nomor"])
-        hasil.append({
+        normalized.append({
             "nomor": nomor,
             "pertanyaan": str(item.get("pertanyaan", "")).strip(),
             "opsi": opsi,
             "pilihan": pilihan,
+            "kunci_jawaban": kunci,
+            "kunci_yakin": bool(item.get("kunci_yakin", False)),
+            "bobot_ai": item.get("bobot", 1),
             "yakin": bool(item.get("yakin", True)),
         })
-    return sorted(hasil, key=lambda x: x["nomor"])
+    normalized.sort(key=lambda x: x["nomor"])
+    bobot_normal = normalisasi_bobot(normalized)
+
+    for item, bobot in zip(normalized, bobot_normal):
+        item["bobot"] = bobot
+        jawaban = item["pilihan"]
+        kunci = item["kunci_jawaban"]
+        item["nilai_ai"] = bobot if jawaban and kunci and jawaban == kunci else 0
+        item["status_ai"] = (
+            "benar" if jawaban and kunci and jawaban == kunci
+            else "salah" if jawaban and kunci
+            else "kosong"
+        )
+        item.pop("bobot_ai")
+
+    return normalized
 
 
 def bersihkan_esai(data: dict) -> list[dict]:

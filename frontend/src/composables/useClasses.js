@@ -234,8 +234,10 @@ async function syncClassesFromSupabase(userEmail = null) {
               const question = formattedQuestions.find((item) => item.id === dj.soal_id)
               const similarity = dj.similarity_score ?? dj.nilai_ai
               const aiScore =
-                similarity != null && question
-                  ? Math.round((Number(similarity) / 100) * (Number(question.points) || 10))
+                similarity != null && question && jm.is_scanned
+                  ? Number(similarity)
+                  : similarity != null && question
+                    ? Math.round((Number(similarity) / 100) * (Number(question.points) || 10))
                   : null
 
               return {
@@ -246,8 +248,9 @@ async function syncClassesFromSupabase(userEmail = null) {
                 feedback: dj.teacher_feedback,
                 isCertain: dj.yakin_scan,
                 rubricEvaluation: dj.rubric_evaluation,
+                aiScore,
                 aiEvaluation:
-                  similarity == null
+                  similarity == null || jm.is_scanned
                     ? null
                     : {
                         similarity: Number(similarity),
@@ -571,10 +574,18 @@ async function saveScannedSubmission(classId, studentId, questions, fileName) {
       Number(question.points) < 0 ||
       !Number.isFinite(Number(question.score)) ||
       Number(question.score) < 0 ||
-      Number(question.score) > Number(question.points)
+      Number(question.score) > Number(question.points) ||
+      !Number.isFinite(Number(question.aiScore)) ||
+      Number(question.aiScore) < 0 ||
+      Number(question.aiScore) > Number(question.points)
     ) {
       throw new Error(`Periksa kembali soal ${index + 1}, opsi, kunci jawaban, dan nilainya.`)
     }
+  }
+  const totalPoints =
+    Math.round(questions.reduce((sum, question) => sum + Number(question.points), 0) * 100) / 100
+  if (totalPoints !== 100) {
+    throw new Error('Total bobot seluruh soal harus tepat 100 poin.')
   }
 
   const { data: { user }, error: userError } = await supabase.auth.getUser()
@@ -690,6 +701,7 @@ async function saveScannedSubmission(classId, studentId, questions, fileName) {
       jawaban_teks:
         question.options.find((option) => option.value === question.selectedOption)?.label || '',
       nilai_final: Number(question.score || 0),
+      nilai_ai: Number(question.aiScore || 0),
       yakin_scan: question.isCertain,
     }))
     const { error: detailsError } = await supabase.from('detail_jawaban').insert(details)
