@@ -6,6 +6,7 @@ import aiBannerImg from '@/assets/images/bennerbuatsoal_ai.png'
 import sendFillIcon from '@/assets/icons/Send_fill.svg'
 import { classes } from '@/composables/useClasses.js'
 import { generateQuizAI } from '@/services/api.js'
+import { resolveMultipleChoiceAnswerKey } from '@/utils/quizAnswerKey.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -180,7 +181,10 @@ async function handleSubmitPrompt() {
         title: s.pertanyaan,
         type: s.tipe === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
         options: s.opsi ? s.opsi.map((o) => o.teks) : [],
-        answerKey: s.kunci_jawaban || '',
+        answerKey:
+          s.tipe === 'multiple_choice'
+            ? resolveMultipleChoiceAnswerKey(s.opsi, s.kunci_jawaban)
+            : s.kunci_jawaban || '',
         rubric: s.rubrik || [],
         points: s.bobot || 10,
       }))
