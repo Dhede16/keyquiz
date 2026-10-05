@@ -270,6 +270,7 @@ async function syncClassesFromSupabase(userEmail = null) {
           return {
             id: t.id,
             title: t.title,
+            createdAt: t.created_at,
             isScanned: (t.jawaban_mahasiswa || []).some((submission) => submission.is_scanned),
             description: t.description || '',
             status: t.status,
@@ -390,6 +391,7 @@ async function addTaskToClass(classId, task) {
     submissions: [],
     ...task,
     id: taskId,
+    createdAt: task.createdAt || new Date().toISOString(),
   }
 
   classItem.tasks ||= []

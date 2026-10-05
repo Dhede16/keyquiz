@@ -27,6 +27,9 @@ const currentClass = computed(() => {
 const tasks = computed(() =>
   (currentClass.value?.tasks || []).filter((task) =>
     !isStudent.value || canStudentViewTask(task, user.value?.id, user.value?.email),
+  ).sort(
+    (a, b) =>
+      (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0),
   ),
 )
 const activeClassTab = ref('quizzes')
