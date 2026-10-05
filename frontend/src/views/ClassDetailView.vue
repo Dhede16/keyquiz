@@ -6,7 +6,7 @@ import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import { addTaskToClass, classes } from '@/composables/useClasses.js'
-import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
+import { canStudentViewTask, canTeacherViewTask } from '@/utils/scannedTaskAccess.js'
 import classDetailBanner from '@/assets/images/BennedetailClass.png'
 
 const route = useRoute()
@@ -26,7 +26,9 @@ const currentClass = computed(() => {
 
 const tasks = computed(() =>
   (currentClass.value?.tasks || []).filter((task) =>
-    !isStudent.value || canStudentViewTask(task, user.value?.id, user.value?.email),
+    isStudent.value
+    	? canStudentViewTask(task, user.value?.id, user.value?.email)
+    	: canTeacherViewTask(task),
   ).sort(
     (a, b) =>
       (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0),

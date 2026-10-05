@@ -20,3 +20,7 @@ export function canStudentViewTask(task, studentId, email) {
     }),
   )
 }
+
+export function canTeacherViewTask(task) {
+  return !isScannedTask(task)
+}
