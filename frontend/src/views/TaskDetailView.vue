@@ -11,7 +11,6 @@ import {
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
-import { defaultStudents } from '@/data/students.js'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
 import { gradeEssay, saveEssayKey } from '@/services/api.js'
 import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
@@ -60,17 +59,10 @@ const studentSubmission = computed(() => {
 
 const submissions = computed(() => currentTask.value?.submissions || [])
 const resultStudents = computed(() =>
-  submissions.value.length > 0
-    ? submissions.value.map((submission) => ({
-        ...submission,
-        isDemo: false,
-        displayScore: submission.graded ? submission.score : 'Belum',
-      }))
-    : defaultStudents.map((student) => ({
-        ...student,
-        isDemo: true,
-        displayScore: student.score,
-      })),
+  submissions.value.map((submission) => ({
+    ...submission,
+    displayScore: submission.graded ? submission.score : 'Belum',
+  })),
 )
 const maxScore = computed(() =>
   questions.value.reduce((total, question) => total + (Number(question.points) || 0), 0),
@@ -201,7 +193,6 @@ function saveSettings(key, event) {
 }
 
 function openStudentResult(student) {
-  if (student.isDemo) return
   router.push({
     name: 'grade-submission',
     params: { id: String(classId.value), taskId: String(taskId.value) },
@@ -590,14 +581,21 @@ function openStudentResult(student) {
 
           <section class="rounded-[1.5rem] bg-white p-5 shadow-sm sm:rounded-[2rem] sm:p-8">
             <h2 class="text-lg font-bold text-[#333333]">Mahasiswa</h2>
+            <p
+              v-if="resultStudents.length === 0"
+              class="mt-4 border-t border-[#d6d6d6] py-8 text-center text-sm text-[#888888]"
+              role="status"
+            >
+              Belum ada mahasiswa yang mengumpulkan kuis.
+            </p>
             <div
+              v-else
               class="mt-4 grid gap-3 border-t border-[#d6d6d6] pt-4 sm:grid-cols-2 sm:gap-4 lg:gap-x-8"
             >
               <article v-for="student in resultStudents" :key="student.email" class="min-w-0">
                 <button
                   type="button"
-                  :disabled="student.isDemo"
-                  class="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#c9c9c9] p-1.5 text-left shadow-[0_2px_3px_rgba(0,0,0,0.2)] transition hover:border-[#2864E8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2864E8] disabled:cursor-default sm:gap-3 sm:p-2"
+                  class="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#c9c9c9] p-1.5 text-left shadow-[0_2px_3px_rgba(0,0,0,0.2)] transition hover:border-[#2864E8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2864E8] sm:gap-3 sm:p-2"
                   @click="openStudentResult(student)"
                 >
                   <div class="size-14 shrink-0 overflow-hidden rounded-xl sm:size-16">
@@ -610,7 +608,7 @@ function openStudentResult(student) {
                     <p class="truncate text-[11px] text-[#888888] sm:text-xs">
                       {{ student.email }}
                     </p>
-                    <p v-if="!student.isDemo" class="mt-0.5 text-[10px] font-medium text-[#2864E8]">
+                    <p class="mt-0.5 text-[10px] font-medium text-[#2864E8]">
                       {{ student.graded ? 'Sudah dinilai · Klik untuk lihat' : 'Belum dinilai · Klik untuk koreksi' }}
                     </p>
                   </div>
