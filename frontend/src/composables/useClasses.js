@@ -564,7 +564,7 @@ async function saveTaskSubmission(classId, taskId, submission) {
   return updatedTask
 }
 
-async function saveScannedSubmission(classId, studentId, questions, fileName) {
+async function saveScannedSubmission(classId, studentId, questions, quizTitle) {
   const classItem = classes.value.find((item) => String(item.id) === String(classId))
   if (!classItem) throw new Error('Kelas yang dipilih tidak ditemukan.')
   if (!Array.isArray(questions) || questions.length === 0) {
@@ -629,10 +629,13 @@ async function saveScannedSubmission(classId, studentId, questions, fileName) {
     .single()
   if (studentError) throw new Error(`Data mahasiswa tidak ditemukan: ${studentError.message}`)
 
+  const cleanQuizTitle = quizTitle.trim()
+  if (!cleanQuizTitle) throw new Error('Nama kuis tidak boleh kosong.')
+
   const taskId = crypto.randomUUID()
   const task = {
     id: taskId,
-    title: `Hasil Scan - ${fileName}`,
+    title: cleanQuizTitle,
     description: 'Hasil scan lembar pilihan ganda yang telah dikoreksi dosen.',
     status: 'published',
     showScore: true,

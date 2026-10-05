@@ -26,6 +26,7 @@ const showStudentFilter = ref(false)
 const showOnlySelectedStudents = ref(false)
 const selectedClassId = ref('')
 const selectedStudentIds = ref([])
+const scannedQuizTitle = ref('')
 
 const teacherClasses = computed(() =>
   getClassesForTeacher(user.value?.email, user.value?.id, user.value?.name),
@@ -250,6 +251,7 @@ async function startScanning() {
     if (scannedQuestions.value.length === 0) {
       throw new Error('AI tidak menemukan soal pada foto. Unggah foto soal pilihan ganda yang lebih jelas.')
     }
+    scannedQuizTitle.value = `Hasil Scan - ${selectedFiles.value[0].name}`
     currentStep.value = 'result'
   } catch (err) {
     scanError.value = err.message || 'Gagal memindai foto. Silakan coba lagi.'
@@ -291,6 +293,7 @@ const maxScore = computed(() =>
 )
 const canSubmitScan = computed(
   () =>
+    Boolean(scannedQuizTitle.value.trim()) &&
     scannedQuestions.value.length > 0 &&
     scannedQuestions.value.every(
       (question) =>
@@ -325,7 +328,7 @@ async function submitScannedResult() {
         score: Number(question.score),
         isCertain: question.isCertain,
       })),
-      selectedFiles.value[0].name,
+      scannedQuizTitle.value,
     )
     savedTaskId.value = task.id
     isSelectionModalOpen.value = false
@@ -342,6 +345,7 @@ function resetScan() {
   currentStep.value = 'upload'
   isSavedModalOpen.value = false
   scanError.value = ''
+  scannedQuizTitle.value = ''
   scannedQuestions.value = []
   clearAllFiles()
 }
@@ -562,6 +566,21 @@ const buttonText = computed(() => {
           Periksa teks soal dan opsi, koreksi jawaban yang terbaca, tentukan kunci jawaban, lalu
           sesuaikan nilai jika diperlukan.
         </p>
+        <label
+          for="scanned-quiz-title"
+          class="mt-4 block space-y-1 text-sm font-medium text-[#444444]"
+        >
+          Nama kuis yang tampil kepada mahasiswa
+          <input
+            id="scanned-quiz-title"
+            v-model="scannedQuizTitle"
+            type="text"
+            required
+            maxlength="150"
+            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-[#222222] focus:border-[#2864E8] focus:outline-none focus:ring-2 focus:ring-[#2864E8]/20"
+            placeholder="Masukkan nama kuis"
+          />
+        </label>
         <p class="mt-3 text-sm font-semibold text-[#2864E8]">
           Nilai AI: {{ totalScore }} / 100 poin &bull; Total bobot:
           {{ maxScore }} / 100 poin

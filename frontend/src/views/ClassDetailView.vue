@@ -7,6 +7,7 @@ import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import { addTaskToClass, classes } from '@/composables/useClasses.js'
 import { canStudentViewTask, canTeacherViewTask } from '@/utils/scannedTaskAccess.js'
+import { getClassStatisticsStudents } from '@/utils/classStatistics.js'
 import classDetailBanner from '@/assets/images/BennedetailClass.png'
 
 const route = useRoute()
@@ -24,55 +25,32 @@ const currentClass = computed(() => {
   )
 })
 
-const tasks = computed(() =>
-  (currentClass.value?.tasks || []).filter((task) =>
-    isStudent.value
-    	? canStudentViewTask(task, user.value?.id, user.value?.email)
-    	: canTeacherViewTask(task),
-  ).sort(
+const allTasks = computed(() =>
+  [...(currentClass.value?.tasks || [])].sort(
     (a, b) =>
       (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0),
   ),
 )
+const tasks = computed(() =>
+  allTasks.value.filter((task) =>
+    isStudent.value
+      ? canStudentViewTask(task, user.value?.id, user.value?.email)
+      : canTeacherViewTask(task),
+  ),
+)
+const statisticsTasks = computed(() => (isStudent.value ? tasks.value : allTasks.value))
 const activeClassTab = ref('quizzes')
 const selectedStatisticStudent = ref(null)
 const classStatisticsStudents = computed(() => {
-  const members = currentClass.value?.members || []
-  return members.map((member) => {
-    const studentEmail = member.email.toLowerCase()
-    const quizScores = tasks.value.map((task) => {
-      const sub = task.submissions?.find((s) => s.email?.toLowerCase() === studentEmail)
-      return {
-        id: task.id,
-        title: task.title,
-        score: sub && sub.score != null ? Number(sub.score) : null,
-      }
-    })
-    const completedScores = quizScores
-      .filter((quiz) => quiz.score !== null && quiz.score !== undefined)
-      .map((quiz) => Number(quiz.score))
-
-    return {
-      id: member.id || member.studentId,
-      name: member.name,
-      email: member.email,
-      average:
-        completedScores.length > 0
-          ? Math.round(
-              completedScores.reduce((total, score) => total + score, 0) / completedScores.length,
-            )
-          : 0,
-      quizScores,
-    }
-  })
+  return getClassStatisticsStudents(currentClass.value?.members || [], statisticsTasks.value)
 })
 const currentStudentStatistics = computed(() => {
   const email = user.value?.email?.trim().toLowerCase()
   const sampleStudent = defaultStudents.find((student) => student.email.toLowerCase() === email)
-  const submissions = tasks.value.map((task) =>
+  const submissions = statisticsTasks.value.map((task) =>
     task.submissions?.find((submission) => submission.email?.trim().toLowerCase() === email),
   )
-  const quizScores = tasks.value.map((task, index) => {
+  const quizScores = statisticsTasks.value.map((task, index) => {
     const submission = submissions[index]
     if (!submission) return { id: task.id, title: task.title, score: null, completed: false }
 
@@ -110,7 +88,7 @@ const currentStudentStatistics = computed(() => {
 const visibleStatisticStudent = computed(() =>
   isStudent.value ? currentStudentStatistics.value : selectedStatisticStudent.value,
 )
-const statisticChartWidth = computed(() => `${Math.max(520, tasks.value.length * 150)}px`)
+const statisticChartWidth = computed(() => `${Math.max(520, statisticsTasks.value.length * 150)}px`)
 
 function getScoreHeight(score) {
   return `${Math.min(100, Math.max(0, Number(score) || 0))}%`
@@ -423,7 +401,7 @@ function getStudentSubmission(task) {
           <section class="grid gap-3 sm:grid-cols-2 sm:gap-5" aria-label="Ringkasan nilai">
             <article class="rounded-xl bg-white px-4 py-6 text-center shadow-sm sm:py-7">
               <p class="text-lg font-bold text-[#2864E8] sm:text-2xl">
-                JUMLAH TUGAS: {{ tasks.length }}
+                JUMLAH TUGAS: {{ statisticsTasks.length }}
               </p>
             </article>
             <article class="rounded-xl bg-white px-4 py-6 text-center shadow-sm sm:py-7">
@@ -470,7 +448,7 @@ function getStudentSubmission(task) {
                 <div
                   class="ml-10 grid gap-3 pt-2 text-center text-[10px] text-[#777777] sm:gap-5 sm:text-xs"
                   :style="{
-                    gridTemplateColumns: `repeat(${Math.max(tasks.length, 1)}, minmax(0, 1fr))`,
+                    gridTemplateColumns: `repeat(${Math.max(statisticsTasks.length, 1)}, minmax(0, 1fr))`,
                   }"
                 >
                   <span
