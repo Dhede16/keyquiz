@@ -33,49 +33,24 @@ const activeClassTab = ref('quizzes')
 const selectedStatisticStudent = ref(null)
 const classStatisticsStudents = computed(() => {
   const members = currentClass.value?.members || []
-  if (members.length > 0) {
-    return members.map((member) => {
-      const studentEmail = member.email.toLowerCase()
-      const quizScores = tasks.value.map((task) => {
-        const sub = task.submissions?.find((s) => s.email?.toLowerCase() === studentEmail)
-        return {
-          id: task.id,
-          title: task.title,
-          score: sub && sub.score != null ? Number(sub.score) : null,
-        }
-      })
-      const completedScores = quizScores
-        .filter((quiz) => quiz.score !== null && quiz.score !== undefined)
-        .map((quiz) => Number(quiz.score))
-
+  return members.map((member) => {
+    const studentEmail = member.email.toLowerCase()
+    const quizScores = tasks.value.map((task) => {
+      const sub = task.submissions?.find((s) => s.email?.toLowerCase() === studentEmail)
       return {
-        id: member.id || member.studentId,
-        name: member.name,
-        email: member.email,
-        completedQuizCount: completedScores.length,
-        average:
-          completedScores.length > 0
-            ? Math.round(
-                completedScores.reduce((total, score) => total + score, 0) / completedScores.length,
-              )
-            : null,
-        quizScores,
+        id: task.id,
+        title: task.title,
+        score: sub && sub.score != null ? Number(sub.score) : null,
       }
     })
-  }
-
-  return defaultStudents.map((student) => {
-    const quizScores = tasks.value.map((task) => ({
-      id: task.id,
-      title: task.title,
-      score: 100,
-    }))
     const completedScores = quizScores
       .filter((quiz) => quiz.score !== null && quiz.score !== undefined)
       .map((quiz) => Number(quiz.score))
 
     return {
-      ...student,
+      id: member.id || member.studentId,
+      name: member.name,
+      email: member.email,
       completedQuizCount: completedScores.length,
       average:
         completedScores.length > 0
@@ -412,7 +387,7 @@ function getStudentSubmission(task) {
               v-if="classStatisticsStudents.length === 0"
               class="py-8 text-center text-sm text-[#888888]"
             >
-              Belum ada data mahasiswa di kelas ini.
+              Belum ada mahasiswa.
             </p>
           </div>
         </section>
