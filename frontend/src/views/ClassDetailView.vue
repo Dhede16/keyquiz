@@ -51,13 +51,12 @@ const classStatisticsStudents = computed(() => {
       id: member.id || member.studentId,
       name: member.name,
       email: member.email,
-      completedQuizCount: completedScores.length,
       average:
         completedScores.length > 0
           ? Math.round(
               completedScores.reduce((total, score) => total + score, 0) / completedScores.length,
             )
-          : null,
+          : 0,
       quizScores,
     }
   })
@@ -68,10 +67,8 @@ const currentStudentStatistics = computed(() => {
   const submissions = tasks.value.map((task) =>
     task.submissions?.find((submission) => submission.email?.trim().toLowerCase() === email),
   )
-  const hasSubmissions = submissions.some(Boolean)
   const quizScores = tasks.value.map((task, index) => {
     const submission = submissions[index]
-    if (!hasSubmissions) return { id: task.id, title: task.title, score: 100, completed: true }
     if (!submission) return { id: task.id, title: task.title, score: null, completed: false }
 
     const rawScore = submission.graded || submission.score != null ? Number(submission.score) : null
@@ -98,13 +95,10 @@ const currentStudentStatistics = computed(() => {
   return {
     name: user.value?.name || sampleStudent?.name || 'Mahasiswa',
     email: user.value?.email || sampleStudent?.email || '',
-    completedQuizCount: quizScores.filter((quiz) => quiz.completed).length,
     average:
       gradedScores.length > 0
         ? Math.round(gradedScores.reduce((total, score) => total + score, 0) / gradedScores.length)
-        : hasSubmissions
-          ? null
-          : 100,
+        : 0,
     quizScores,
   }
 })
@@ -380,7 +374,7 @@ function getStudentSubmission(task) {
                 class="flex min-w-14 shrink-0 flex-col items-center rounded-lg bg-[#2864E8] px-2 py-1 text-xs font-medium leading-tight text-white shadow-sm sm:min-w-16 sm:py-1.5 sm:text-sm"
               >
                 <span>Nilai</span>
-                <span>{{ student.average ?? 'Belum' }}</span>
+                <span>{{ student.average }}</span>
               </div>
             </button>
             <p
@@ -424,12 +418,12 @@ function getStudentSubmission(task) {
           <section class="grid gap-3 sm:grid-cols-2 sm:gap-5" aria-label="Ringkasan nilai">
             <article class="rounded-xl bg-white px-4 py-6 text-center shadow-sm sm:py-7">
               <p class="text-lg font-bold text-[#2864E8] sm:text-2xl">
-                TOTAL KUIS: {{ visibleStatisticStudent.completedQuizCount }}
+                JUMLAH TUGAS: {{ tasks.length }}
               </p>
             </article>
             <article class="rounded-xl bg-white px-4 py-6 text-center shadow-sm sm:py-7">
               <p class="text-lg font-bold text-[#2864E8] sm:text-2xl">
-                RATA-RATA: {{ visibleStatisticStudent.average ?? '-' }}
+                RATA-RATA: {{ visibleStatisticStudent.average }}
               </p>
             </article>
           </section>
