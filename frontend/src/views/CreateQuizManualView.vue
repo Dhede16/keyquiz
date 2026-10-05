@@ -10,6 +10,7 @@ import {
   getQuizPointsTotal,
   hasQuizPointsTotalOf100,
   normalizeQuizPoints,
+  setQuizQuestionPoints,
 } from '@/utils/quizPoints.js'
 
 const route = useRoute()
@@ -96,6 +97,8 @@ const hasValidPointTotal = computed(() => hasQuizPointsTotalOf100(questions.valu
 
 // Modal Kunci Jawaban
 const activeQuestionForModal = ref(null)
+const pointDraft = ref(0)
+const pointError = ref('')
 
 // Tambah Pertanyaan Baru
 function addQuestion() {
@@ -108,12 +111,14 @@ function addQuestion() {
     points: 10,
     showAnswerKeyModal: false,
   })
+  questions.value = normalizeQuizPoints(questions.value)
 }
 
 // Hapus Pertanyaan
 function removeQuestion(index) {
   if (questions.value.length > 1) {
     questions.value.splice(index, 1)
+    questions.value = normalizeQuizPoints(questions.value)
   }
 }
 
@@ -132,10 +137,30 @@ function removeOption(q, optIndex) {
 // Buka Modal Kunci Jawaban
 function openAnswerKey(q) {
   activeQuestionForModal.value = q
+  pointDraft.value = q.points
+  pointError.value = ''
 }
 
 function closeAnswerKey() {
   activeQuestionForModal.value = null
+}
+
+function saveAnswerKey() {
+  const questionIndex = questions.value.indexOf(activeQuestionForModal.value)
+  const maxPoints = 100 - (questions.value.length - 1)
+  const minPoints = questions.value.length === 1 ? 100 : 1
+
+  if (
+    !Number.isInteger(pointDraft.value) ||
+    pointDraft.value < minPoints ||
+    pointDraft.value > maxPoints
+  ) {
+    pointError.value = `Masukkan angka bulat antara ${minPoints} dan ${maxPoints}. Bobot soal lain akan disesuaikan otomatis.`
+    return
+  }
+
+  questions.value = setQuizQuestionPoints(questions.value, questionIndex, pointDraft.value)
+  closeAnswerKey()
 }
 
 // Simpan Formulir ke Daftar Tugas Kelas
@@ -507,16 +532,26 @@ function handleCloseSaved() {
             </button>
           </div>
 
-          <!-- Poin Soal -->
+          <!-- Bobot manual dengan pembagian otomatis pada soal lainnya -->
           <div>
-            <label class="block text-xs font-semibold text-[#555] mb-1">Poin Nilai</label>
+            <label class="block text-xs font-semibold text-[#555] mb-1" for="question-points">
+              Bobot Nilai
+            </label>
             <input
-              v-model.number="activeQuestionForModal.points"
+              id="question-points"
+              v-model.number="pointDraft"
               type="number"
-              min="1"
-              step="0.01"
+              :min="questions.length === 1 ? 100 : 1"
+              :max="100 - (questions.length - 1)"
+              step="1"
               class="w-24 rounded-xl border border-[#ccc] px-3 py-1.5 text-sm outline-none focus:border-[#2864E8]"
             />
+            <p class="mt-1 text-xs text-[#888]">
+              Soal lain akan dibagi rata dari sisa poin. Total seluruh soal tetap 100.
+            </p>
+            <p v-if="pointError" class="mt-1 text-xs text-red-600" role="alert">
+              {{ pointError }}
+            </p>
           </div>
 
           <!-- Pilihan Kunci untuk Pilihan Ganda -->
@@ -563,7 +598,7 @@ function handleCloseSaved() {
             <button
               type="button"
               class="cursor-pointer rounded-xl bg-[#2864E8] px-6 py-2 text-xs sm:text-sm font-semibold text-white shadow hover:bg-[#1f50be]"
-              @click="closeAnswerKey"
+              @click="saveAnswerKey"
             >
               Simpan Kunci
             </button>
