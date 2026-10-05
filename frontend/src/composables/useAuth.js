@@ -5,11 +5,22 @@ import { registerAdminAPI } from '@/services/api.js'
 const STORAGE_KEY = 'keyquiz:user'
 
 function loadLocalUser() {
+  let storedUser
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null
+    storedUser = JSON.parse(localStorage.getItem(STORAGE_KEY)) || null
   } catch {
     return null
   }
+
+  if (storedUser && typeof storedUser === 'object' && 'password' in storedUser) {
+    delete storedUser.password
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(storedUser))
+    } catch {
+      /* storage tidak tersedia */
+    }
+  }
+  return storedUser
 }
 
 const user = ref(loadLocalUser())
@@ -44,7 +55,7 @@ async function initAuthSession() {
       // Ambil detail profile dari tabel profiles
       const { data: profile } = await supabase
         .from('profiles')
-        .select('*')
+        .select('name, role, birth_date, phone, gender')
         .eq('id', session.user.id)
         .single()
 
@@ -53,7 +64,6 @@ async function initAuthSession() {
         email: session.user.email,
         name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
         role: profile?.role || session.user.user_metadata?.role || 'student',
-        password: profile?.password || session.user.user_metadata?.password || '',
         birthDate: profile?.birth_date || '',
         phone: profile?.phone || '',
         gender: profile?.gender || '',
@@ -70,7 +80,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('*')
+      .select('name, role, birth_date, phone, gender')
       .eq('id', session.user.id)
       .single()
 
@@ -79,7 +89,6 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       email: session.user.email,
       name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
       role: profile?.role || session.user.user_metadata?.role || 'student',
-      password: profile?.password || session.user.user_metadata?.password || '',
       birthDate: profile?.birth_date || '',
       phone: profile?.phone || '',
       gender: profile?.gender || '',
@@ -102,47 +111,37 @@ export function useAuth() {
   async function login({ email, password, role }) {
     authLoading.value = true
     try {
-      if (password) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        })
+      if (!email?.trim() || !password) {
+        throw new Error('Email dan kata sandi wajib diisi.')
+      }
 
-        if (error) {
-          // Jika user belum ada di Supabase auth (misal demo user), kita coba daftarkan otomatis atau login demo
-          if (error.message.includes('Invalid login credentials')) {
-            throw new Error('Email atau kata sandi salah. Silakan periksa kembali atau daftar akun baru.')
-          }
-          throw error
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          throw new Error('Email atau kata sandi salah. Silakan periksa kembali atau daftar akun baru.')
         }
+        throw error
+      }
 
-        if (data?.user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single()
+      if (data?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('name, role, birth_date, phone, gender')
+          .eq('id', data.user.id)
+          .single()
 
-          const userData = {
-            id: data.user.id,
-            email: data.user.email,
-            name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
-            role: profile?.role || role || data.user.user_metadata?.role || 'teacher',
-            password: profile?.password || password || '',
-            birthDate: profile?.birth_date || '',
-            phone: profile?.phone || '',
-            gender: profile?.gender || '',
-          }
-          saveLocalUser(userData)
-          return userData
-        }
-      } else {
-        // Fallback untuk mode tanpa password jika diperlukan
         const userData = {
-          id: user.value?.id || `usr-${Date.now()}`,
-          email: email.trim(),
-          name: nameFromEmail(email),
-          role: role || user.value?.role || 'teacher',
+          id: data.user.id,
+          email: data.user.email,
+          name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
+          role: profile?.role || role || data.user.user_metadata?.role || 'student',
+          birthDate: profile?.birth_date || '',
+          phone: profile?.phone || '',
+          gender: profile?.gender || '',
         }
         saveLocalUser(userData)
         return userData
@@ -160,70 +159,16 @@ export function useAuth() {
     try {
       const trimmedEmail = email.trim()
       const displayName = name?.trim() || nameFromEmail(trimmedEmail)
+      await registerAdminAPI({
+        email: trimmedEmail,
+        password,
+        name: displayName,
+        role,
+      })
 
-      let authUser = null
-
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email: trimmedEmail,
-          password,
-          options: {
-            data: {
-              name: displayName,
-              role,
-              password,
-            },
-          },
-        })
-
-        if (error) throw error
-        authUser = data?.user
-      } catch (signUpErr) {
-        const msg = (signUpErr.message || '').toLowerCase()
-        // Jika terkena email rate limit atau user sudah ada di auth.users namun profil belum sinkron,
-        // alihkan ke backend admin register untuk sinkronisasi otomatis ke tabel profiles
-        if (
-          msg.includes('rate limit') ||
-          msg.includes('over_email_send_rate_limit') ||
-          msg.includes('exceeded') ||
-          msg.includes('already registered') ||
-          msg.includes('already exists')
-        ) {
-          console.warn('[useAuth] Beralih ke Backend Admin registration/sync...')
-          await registerAdminAPI({
-            email: trimmedEmail,
-            password,
-            name: displayName,
-            role,
-          })
-
-          // Pastikan sesi lokal tetap bersih agar user harus login manual
-          await supabase.auth.signOut().catch(() => {})
-          saveLocalUser(null)
-          return { success: true, email: trimmedEmail }
-        }
-        throw signUpErr
-      }
-
-      if (authUser) {
-        // Coba upsert profiles jika sesi ada, atau biarkan trigger handle_new_user di Postgres
-        try {
-          await supabase.from('profiles').upsert({
-            id: authUser.id,
-            email: trimmedEmail,
-            name: displayName,
-            role,
-            password,
-          })
-        } catch (pErr) {
-          console.warn('[useAuth] Profile trigger will handle or upsert ignored:', pErr)
-        }
-
-        // Pastikan pengguna di-logout sehingga harus login terlebih dahulu
-        await supabase.auth.signOut().catch(() => {})
-        saveLocalUser(null)
-        return { success: true, email: trimmedEmail }
-      }
+      await supabase.auth.signOut().catch(() => {})
+      saveLocalUser(null)
+      return { success: true, email: trimmedEmail }
     } finally {
       authLoading.value = false
     }

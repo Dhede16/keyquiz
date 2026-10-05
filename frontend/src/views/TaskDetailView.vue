@@ -14,6 +14,7 @@ import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
 import { gradeEssay, saveEssayKey } from '@/services/api.js'
+import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
 
 
 const route = useRoute()
@@ -26,21 +27,22 @@ const isStudent = computed(() => user.value?.role === 'student')
 const activeSheet = ref('results')
 
 const currentClass = computed(() => {
-  return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
+  return (
+    classes.value.find((c) => String(c.id) === String(classId.value)) ||
+    (isStudent.value ? null : classes.value[0])
+  )
 })
 
 const currentTask = computed(() => {
   const tasks = currentClass.value?.tasks || []
-  return (
-    tasks.find((t) => String(t.id) === String(taskId.value)) || {
-      id: taskId.value,
-      title: `Tugas ${taskId.value}`,
-      date: 'Senin, 28 September 2026',
-    }
-  )
+  const task = tasks.find((item) => String(item.id) === String(taskId.value))
+  if (isStudent.value && task && !canStudentViewTask(task, user.value?.id, user.value?.email)) {
+    return null
+  }
+  return task || null
 })
 
-const questions = computed(() => currentTask.value.questions || [])
+const questions = computed(() => currentTask.value?.questions || [])
 const answers = ref([])
 const isSubmissionSuccessOpen = ref(false)
 const submissionError = ref('')
@@ -50,13 +52,13 @@ const studentSubmission = computed(() => {
   if (!email) return null
 
   return (
-    currentTask.value.submissions?.find(
+    currentTask.value?.submissions?.find(
       (submission) => submission.email?.trim().toLowerCase() === email,
     ) || null
   )
 })
 
-const submissions = computed(() => currentTask.value.submissions || [])
+const submissions = computed(() => currentTask.value?.submissions || [])
 const resultStudents = computed(() =>
   submissions.value.length > 0
     ? submissions.value.map((submission) => ({
@@ -210,7 +212,14 @@ function openStudentResult(student) {
 
 <template>
   <DashboardLayout>
-    <div class="space-y-4 pb-16 sm:space-y-6 sm:pb-20">
+    <section
+      v-if="!currentTask"
+      class="rounded-2xl bg-white p-6 text-center text-sm text-[#777777] shadow-sm sm:p-8"
+      role="status"
+    >
+      Tugas tidak tersedia atau kamu tidak memiliki akses ke hasil scan ini.
+    </section>
+    <div v-else class="space-y-4 pb-16 sm:space-y-6 sm:pb-20">
       <!-- Breadcrumb Navigasi Kembali -->
       <div v-if="!isStudent" class="flex items-center gap-2 text-white/90">
         <button

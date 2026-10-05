@@ -83,6 +83,8 @@ python database/init_db.py
 ```
 > **Output Sukses:** `[SUKSES] Semua tabel, trigger, dan RLS policy berhasil dibuat di Supabase!`
 
+> **Untuk proyek Supabase yang sudah ada:** setelah memperbarui skema, jalankan `database/migrations/20261005_remove_profile_plaintext_password.sql` di SQL Editor untuk menghapus salinan kata sandi lama dari profil dan metadata autentikasi.
+
 ---
 
 ### 5. Setup & Instalasi Dependensi Frontend
@@ -130,6 +132,7 @@ Setelah backend dan frontend berjalan, Anda dapat menguji fitur-fitur unggulan b
    - Periksa hasil ekstraksi teks soal dan keterangan setiap opsi. AI menyarankan kunci jawaban dan bobot tiap soal, lalu dosen dapat mengubah keduanya serta menyesuaikan nilai jawaban.
    - Pastikan total bobot semua soal tepat 100 poin sebelum memilih kelas dan mahasiswa untuk mengirim hasil.
    - Pilih kelas dan satu mahasiswa, lalu kirim hasil. Hasil scan, jawaban, dan nilai tersimpan sebagai tugas di kelas tersebut dan dapat dilihat mahasiswa pada detail tugas.
+   - Jalankan `database/migrations/20261004_scanned_results_student_privacy.sql` di Supabase SQL Editor. RLS membatasi tugas scan, pertanyaan, dan opsi kepada dosen kelas serta mahasiswa tujuan; mahasiswa lain tidak bisa membaca data tersebut melalui API atau URL detail.
 
 3. **Penilaian Esai Semantik (Hybrid Grading Engine)**:
    - Mahasiswa mengumpulkan jawaban esai pada halaman detail tugas.

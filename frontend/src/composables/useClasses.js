@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { classes as initialClasses } from '@/data/classes.js'
 import { supabase } from '@/services/supabase.js'
 import { saveEssayKey } from '@/services/api.js'
+import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
 
 const CLASSES_STORAGE_KEY = 'keyquiz:classes'
 const classes = ref(loadInitialClasses())
@@ -55,7 +56,12 @@ function getClassesForStudent(email, studentId = null) {
       }
     }
     return false
-  })
+  }).map((classItem) => ({
+    ...classItem,
+    tasks: (classItem.tasks || []).filter((task) =>
+      canStudentViewTask(task, studentId, email),
+    ),
+  }))
 }
 
 function getClassesForTeacher(email, teacherId = null, teacherName = null) {
@@ -263,6 +269,7 @@ async function syncClassesFromSupabase(userEmail = null) {
           return {
             id: t.id,
             title: t.title,
+            isScanned: (t.jawaban_mahasiswa || []).some((submission) => submission.is_scanned),
             description: t.description || '',
             status: t.status,
             showScore: t.show_score,

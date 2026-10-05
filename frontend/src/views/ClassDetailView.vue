@@ -6,6 +6,7 @@ import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import { addTaskToClass, classes } from '@/composables/useClasses.js'
+import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
 import classDetailBanner from '@/assets/images/BennedetailClass.png'
 
 const route = useRoute()
@@ -17,10 +18,17 @@ const isStudent = computed(() => user.value?.role === 'student')
 
 // Ambil data kelas atau fallback ke kelas pertama
 const currentClass = computed(() => {
-  return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
+  return (
+    classes.value.find((c) => String(c.id) === String(classId.value)) ||
+    (isStudent.value ? null : classes.value[0])
+  )
 })
 
-const tasks = computed(() => currentClass.value?.tasks || [])
+const tasks = computed(() =>
+  (currentClass.value?.tasks || []).filter((task) =>
+    !isStudent.value || canStudentViewTask(task, user.value?.id, user.value?.email),
+  ),
+)
 const activeClassTab = ref('quizzes')
 const selectedStatisticStudent = ref(null)
 const classStatisticsStudents = computed(() => {

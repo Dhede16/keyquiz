@@ -15,6 +15,7 @@ import ClassCard from '@/components/dashboard/ClassCard.vue'
 import CreateClassModal from '@/components/dashboard/CreateClassModal.vue'
 import JoinClassModal from '@/components/dashboard/JoinClassModal.vue'
 import bannerImg from '@/assets/images/dashboard-banner.png'
+import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
 
 const router = useRouter()
 const { user } = useAuth()
@@ -33,12 +34,16 @@ const upcomingQuizzes = computed(() => {
   const now = Date.now()
   return classList.value
     .flatMap((classItem) =>
-      (classItem.tasks || []).map((task) => {
-        const dueAt =
-          task.dueAt ||
-          (task.deadlineDate ? `${task.deadlineDate}T${task.deadlineTime || '23:59'}:00+08:00` : '')
-        return { classItem, task, dueAt, dueTimestamp: dueAt ? new Date(dueAt).getTime() : 0 }
-      }),
+      (classItem.tasks || [])
+        .filter((task) => canStudentViewTask(task, user.value?.id, user.value?.email))
+        .map((task) => {
+          const dueAt =
+            task.dueAt ||
+            (task.deadlineDate
+              ? `${task.deadlineDate}T${task.deadlineTime || '23:59'}:00+08:00`
+              : '')
+          return { classItem, task, dueAt, dueTimestamp: dueAt ? new Date(dueAt).getTime() : 0 }
+        }),
     )
     .filter(({ task, dueTimestamp }) => {
       if (!dueTimestamp || dueTimestamp < now) return false

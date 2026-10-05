@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('teacher', 'student')) DEFAULT 'student',
-    password TEXT,
     avatar_url TEXT,
     birth_date DATE,
     phone TEXT,
@@ -154,20 +153,18 @@ CREATE TABLE IF NOT EXISTS public.detail_jawaban (
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.profiles (id, email, name, role, password, avatar_url)
+    INSERT INTO public.profiles (id, email, name, role, avatar_url)
     VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
         COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
-        NEW.raw_user_meta_data->>'password',
         NEW.raw_user_meta_data->>'avatar_url'
     )
     ON CONFLICT (id) DO UPDATE SET
         email = EXCLUDED.email,
         name = COALESCE(EXCLUDED.name, public.profiles.name),
-        role = COALESCE(EXCLUDED.role, public.profiles.role),
-        password = COALESCE(EXCLUDED.password, public.profiles.password);
+        role = COALESCE(EXCLUDED.role, public.profiles.role);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -195,9 +192,6 @@ DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'nim_nip') THEN
         ALTER TABLE public.profiles DROP COLUMN nim_nip CASCADE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'password') THEN
-        ALTER TABLE public.profiles ADD COLUMN password TEXT;
     END IF;
 END $$;
 
@@ -259,9 +253,53 @@ ON public.anggota_kelas FOR DELETE TO authenticated
 USING (auth.uid() = student_id OR auth.uid() IN (SELECT teacher_id FROM public.kelas WHERE id = kelas_id));
 
 -- Tugas policies
+CREATE OR REPLACE FUNCTION public.can_view_task(target_task_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.tugas t
+        JOIN public.kelas k ON k.id = t.kelas_id
+        WHERE t.id = target_task_id
+          AND (
+              k.teacher_id = auth.uid()
+              OR (
+                  EXISTS (
+                      SELECT 1
+                      FROM public.anggota_kelas ak
+                      WHERE ak.kelas_id = k.id
+                        AND ak.student_id = auth.uid()
+                  )
+                  AND (
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM public.jawaban_mahasiswa scan
+                          WHERE scan.tugas_id = t.id
+                            AND scan.is_scanned = TRUE
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM public.jawaban_mahasiswa scan
+                          WHERE scan.tugas_id = t.id
+                            AND scan.is_scanned = TRUE
+                            AND scan.student_id = auth.uid()
+                      )
+                  )
+              )
+          )
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.can_view_task(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_view_task(UUID) TO authenticated;
+
 DROP POLICY IF EXISTS "Class members and teachers can view tasks" ON public.tugas;
 CREATE POLICY "Class members and teachers can view tasks" 
-ON public.tugas FOR SELECT TO authenticated USING (true);
+ON public.tugas FOR SELECT TO authenticated USING (public.can_view_task(id));
 
 DROP POLICY IF EXISTS "Teachers can manage tasks" ON public.tugas;
 CREATE POLICY "Teachers can manage tasks" 
@@ -271,7 +309,7 @@ USING (auth.uid() IN (SELECT teacher_id FROM public.kelas WHERE id = kelas_id));
 -- Soal & Opsi & Kunci policies
 DROP POLICY IF EXISTS "Anyone in class can view questions" ON public.soal;
 CREATE POLICY "Anyone in class can view questions" 
-ON public.soal FOR SELECT TO authenticated USING (true);
+ON public.soal FOR SELECT TO authenticated USING (public.can_view_task(tugas_id));
 
 DROP POLICY IF EXISTS "Teachers can manage questions" ON public.soal;
 CREATE POLICY "Teachers can manage questions" 
@@ -284,7 +322,14 @@ USING (auth.uid() IN (
 
 DROP POLICY IF EXISTS "Anyone in class can view options" ON public.opsi_jawaban;
 CREATE POLICY "Anyone in class can view options" 
-ON public.opsi_jawaban FOR SELECT TO authenticated USING (true);
+ON public.opsi_jawaban FOR SELECT TO authenticated USING (
+    EXISTS (
+        SELECT 1
+        FROM public.soal s
+        WHERE s.id = soal_id
+          AND public.can_view_task(s.tugas_id)
+    )
+);
 
 DROP POLICY IF EXISTS "Teachers can manage options" ON public.opsi_jawaban;
 CREATE POLICY "Teachers can manage options" 
