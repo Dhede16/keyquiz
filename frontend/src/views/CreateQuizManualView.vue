@@ -6,6 +6,11 @@ import DeadlineModal from '@/components/ui/DeadlineModal.vue'
 import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import aiBannerImg from '@/assets/images/bennerbuatsoal_ai.png'
 import { addTaskToClass, classes } from '@/composables/useClasses.js'
+import {
+  getQuizPointsTotal,
+  hasQuizPointsTotalOf100,
+  normalizeQuizPoints,
+} from '@/utils/quizPoints.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,7 +50,7 @@ const questions = ref([
     type: 'multiple_choice',
     options: ['Opsi 1'],
     answerKey: '',
-    points: 10,
+    points: 50,
     showAnswerKeyModal: false,
   },
   {
@@ -54,7 +59,7 @@ const questions = ref([
     type: 'short_answer',
     options: [],
     answerKey: '',
-    points: 10,
+    points: 50,
     showAnswerKeyModal: false,
   },
 ])
@@ -70,7 +75,7 @@ onMounted(() => {
       try {
         const parsed = JSON.parse(state.aiQuestions)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          questions.value = parsed.map((q, i) => ({
+          questions.value = normalizeQuizPoints(parsed.map((q, i) => ({
             id: q.id || Date.now() + i,
             title: q.title || 'Pertanyaan',
             type: q.type === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
@@ -79,12 +84,15 @@ onMounted(() => {
             rubric: q.rubric || [],
             points: Number(q.points) || 10,
             showAnswerKeyModal: false,
-          }))
+          })))
         }
       } catch { /* ignore parse error */ }
     }
   }
 })
+
+const totalPoints = computed(() => getQuizPointsTotal(questions.value))
+const hasValidPointTotal = computed(() => hasQuizPointsTotalOf100(questions.value))
 
 // Modal Kunci Jawaban
 const activeQuestionForModal = ref(null)
@@ -135,10 +143,13 @@ const isSavedModalOpen = ref(false)
 const isDeadlineModalOpen = ref(false)
 
 function handleSaveForm() {
+  if (!hasValidPointTotal.value) return
   isDeadlineModalOpen.value = true
 }
 
 function saveForm(deadline) {
+  if (!hasValidPointTotal.value) return
+
   const deadlineDate = new Date(`${deadline.date}T12:00:00`)
   addTaskToClass(classId.value, {
     title: formTitle.value.trim() || 'Tugas tanpa judul',
@@ -208,7 +219,8 @@ function handleCloseSaved() {
           <button
             v-if="activeSheet === 'questions'"
             type="button"
-            class="motion-control cursor-pointer rounded-xl bg-white px-4 py-1.5 text-xs sm:text-sm font-bold text-[#2864E8] shadow-sm transition hover:bg-white/90 active:scale-95"
+            class="motion-control cursor-pointer rounded-xl bg-white px-4 py-1.5 text-xs sm:text-sm font-bold text-[#2864E8] shadow-sm transition hover:bg-white/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!hasValidPointTotal"
             @click="handleSaveForm"
           >
             Simpan Formulir
@@ -252,6 +264,17 @@ function handleCloseSaved() {
               placeholder="Deskripsi Formulir"
               class="w-full text-sm font-medium text-[#777777] outline-none placeholder:text-[#999999] sm:text-base"
             />
+
+            <p
+              class="border-t border-slate-100 pt-3 text-sm font-semibold"
+              :class="hasValidPointTotal ? 'text-emerald-700' : 'text-amber-700'"
+              role="status"
+            >
+              Total poin: {{ totalPoints }} / 100
+              <span v-if="!hasValidPointTotal" class="font-normal">
+                — sesuaikan poin soal agar totalnya tepat 100 sebelum dikirim.
+              </span>
+            </p>
 
             <div class="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
               <label class="flex items-start gap-2 text-sm text-[#555555]">
@@ -491,6 +514,7 @@ function handleCloseSaved() {
               v-model.number="activeQuestionForModal.points"
               type="number"
               min="1"
+              step="0.01"
               class="w-24 rounded-xl border border-[#ccc] px-3 py-1.5 text-sm outline-none focus:border-[#2864E8]"
             />
           </div>

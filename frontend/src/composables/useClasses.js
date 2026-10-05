@@ -3,6 +3,7 @@ import { classes as initialClasses } from '@/data/classes.js'
 import { supabase } from '@/services/supabase.js'
 import { saveEssayKey } from '@/services/api.js'
 import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
+import { hasQuizPointsTotalOf100 } from '@/utils/quizPoints.js'
 
 const CLASSES_STORAGE_KEY = 'keyquiz:classes'
 const classes = ref(loadInitialClasses())
@@ -374,6 +375,14 @@ async function addTaskToClass(classId, task) {
   const classItem = classes.value.find((item) => String(item.id) === String(classId))
   if (!classItem) return null
 
+  if (
+    Array.isArray(task.questions) &&
+    task.questions.length > 0 &&
+    !hasQuizPointsTotalOf100(task.questions)
+  ) {
+    throw new Error('Total bobot seluruh soal harus tepat 100 poin.')
+  }
+
   const taskId = task.id || crypto.randomUUID()
   const newTask = {
     showScore: true,
@@ -424,7 +433,7 @@ async function addTaskToClass(classId, task) {
           tugas_id: newTask.id,
           type: q.type || 'multiple_choice',
           question_text: q.title || q.questionText || '',
-          points: Number(q.points) || 10,
+          points: Number(q.points),
           order_index: i + 1,
         })
 

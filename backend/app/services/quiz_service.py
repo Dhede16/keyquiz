@@ -6,6 +6,7 @@ from app.config import NAMA_MODEL_LLM
 SYSTEM_QUIZ_PROMPT = """
 Anda adalah asisten AI pembuat soal dan evaluasi akademik profesional.
 Tugas Anda adalah membuat paket soal ujian (pilihan ganda dan/atau esai) beserta kunci jawaban dan rubrik penilaian yang komprehensif berdasarkan instruksi pengajar.
+Pastikan total nilai bobot seluruh soal tepat 100 poin.
 """
 
 
@@ -18,6 +19,7 @@ Buatkan paket soal ujian berdasarkan instruksi berikut (ikuti PERSIS jumlah dan 
 "{prompt_text}"
 
 Jika instruksi tidak menyebut jumlah/tipe soal tertentu, tentukan sendiri yang paling sesuai.
+Atur nilai "bobot" tiap soal sehingga jumlah seluruhnya tepat 100 poin.
 
 Keluarkan HANYA JSON dengan struktur:
 {{
