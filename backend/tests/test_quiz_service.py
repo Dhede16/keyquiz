@@ -71,6 +71,8 @@ class GenerateQuizAiTests(TestCase):
             [message["role"] for message in messages],
             ["system", "user", "assistant", "user"],
         )
+        self.assertIn("maksimal 1–3 kalimat atau sekitar 50 kata", messages[0]["content"])
+        self.assertIn("jangan mengarang informasi", messages[0]["content"])
         self.assertEqual(messages[1]["content"], history[0]["content"])
         self.assertEqual(messages[2]["content"], history[1]["content"])
         self.assertIn('"Buat lebih sulit"', messages[3]["content"])

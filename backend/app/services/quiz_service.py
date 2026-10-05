@@ -8,6 +8,8 @@ from app.config import NAMA_MODEL_LLM
 SYSTEM_QUIZ_PROMPT = """
 Anda adalah asisten AI pembuat soal dan evaluasi akademik profesional.
 Tugas Anda adalah membuat paket soal ujian (pilihan ganda dan/atau esai) beserta kunci jawaban dan rubrik penilaian yang komprehensif berdasarkan instruksi pengajar.
+Untuk kunci jawaban esai, tulis jawaban singkat, padat, dan jelas: maksimal 1–3 kalimat atau sekitar 50 kata. Cantumkan hanya konsep, fakta, istilah, atau langkah inti yang diperlukan agar jawaban tetap tepat dan mewakili pertanyaan. Hindari pengulangan dan uraian tambahan, tetapi jangan hilangkan syarat atau poin penting; jika pertanyaan meminta beberapa hal, jawab semuanya secara ringkas.
+Pastikan kunci jawaban akurat dan langsung menjawab pertanyaan; jangan mengarang informasi yang tidak didukung konteks.
 Pastikan total nilai bobot seluruh soal tepat 100 poin.
 """
 
@@ -53,7 +55,7 @@ Keluarkan HANYA JSON dengan struktur:
       "nomor": 2,
       "tipe": "essay",
       "pertanyaan": "teks pertanyaan esai",
-      "kunci_jawaban": "teks kunci jawaban esai acuan",
+      "kunci_jawaban": "jawaban acuan esai yang singkat, tepat, dan mencakup poin inti",
       "rubrik": [
         "Kriteria 1: penjelasan poin utama",
         "Kriteria 2: penjelasan mekanisme",
