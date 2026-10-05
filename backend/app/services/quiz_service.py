@@ -1,5 +1,7 @@
 """Service Pembuatan Soal & Kuis Otomatis Berbasis AI (Qwen/Llama LLM)."""
 import json
+from typing import Literal, TypedDict
+
 from app.core.ai_client import get_groq_client
 from app.config import NAMA_MODEL_LLM
 
@@ -10,7 +12,15 @@ Pastikan total nilai bobot seluruh soal tepat 100 poin.
 """
 
 
-def generate_quiz_ai(prompt_text: str) -> dict:
+class ChatMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+def generate_quiz_ai(
+    prompt_text: str,
+    conversation_history: list[ChatMessage] | None = None,
+) -> dict:
     """Generate soal beserta kunci dan rubrik berdasarkan instruksi bebas dosen."""
     client = get_groq_client()
 
@@ -59,6 +69,7 @@ Keluarkan HANYA JSON dengan struktur:
         model=NAMA_MODEL_LLM,
         messages=[
             {"role": "system", "content": SYSTEM_QUIZ_PROMPT},
+            *(conversation_history or []),
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.3,

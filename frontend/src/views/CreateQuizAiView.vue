@@ -16,93 +16,45 @@ const currentClass = computed(() => {
   return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
 })
 
-const defaultAiResponse = `Berikut contoh soal mengenai ICONFEST yang bisa digunakan untuk pengujian sistem penilaian esai dan pilihan ganda.
-
-Soal Esai
-1. Jelaskan apa yang dimaksud dengan ICONFEST dan apa tujuan utama diselenggarakannya kegiatan tersebut!
-2. Menurut pendapat Anda, bagaimana kegiatan ICONFEST dapat membantu mahasiswa dalam mengembangkan kemampuan di bidang teknologi, kreativitas, dan inovasi?
-
-Soal Pilihan Ganda
-
-3. Salah satu tujuan utama kegiatan seperti ICONFEST adalah untuk mendorong peserta dalam mengembangkan...
-A. Kemampuan bermain olahraga
-B. Kreativitas dan inovasi teknologi
-C. Kemampuan memasak
-D. Kemampuan berbisnis secara konvensional
-
-Jawaban: B
-
-4. Peserta ICONFEST umumnya dapat mengembangkan kemampuan melalui kegiatan yang berkaitan dengan...
-A. Teknologi dan inovasi
-B. Pertanian tradisional saja
-C. Seni bela diri
-D. Olahraga profesional
-
-Jawaban: A
-
-5. Salah satu manfaat mengikuti kegiatan ICONFEST bagi mahasiswa adalah...
-
-A. Mengurangi pengalaman dalam bekerja sama
-B. Membatasi kemampuan dalam membuat proyek
-C. Meningkatkan pengalaman, kreativitas, dan kemampuan berkolaborasi
-D. Menghindari penggunaan teknologi
-
-Jawaban: C`
-
-// State Chat / Perintah
 const inputPrompt = ref('')
 const isSubmitted = ref(false)
-const userMessage = ref('')
 const suggestedTaskTitle = ref('')
+const conversationMessages = ref([])
+const latestQuizMessageId = ref(null)
 const chatScrollAreaRef = ref(null)
 const fileInput = ref(null)
 const attachedFiles = ref([])
-const submittedAttachments = ref([])
 
 const isGeneratingAi = ref(false)
-const currentAiDisplayResponse = ref(defaultAiResponse)
 const generatedQuestionsList = ref([])
 
-function parseGeneratedQuestions(text) {
-  const questions = []
-  let currentQuestion = null
+function formatQuizResponse(quiz) {
+  let formattedText = `Berikut soal yang berhasil dibuat untuk "${quiz.judul || 'kuis'}":\n\n`
+  const esaiList = quiz.soal.filter((question) => question.tipe === 'essay')
+  const pgList = quiz.soal.filter((question) => question.tipe === 'multiple_choice')
 
-  function saveCurrentQuestion() {
-    if (!currentQuestion) return
-    if (currentQuestion.answerLetter) {
-      currentQuestion.answerKey =
-        currentQuestion.options[currentQuestion.answerLetter.charCodeAt(0) - 65] || ''
-    }
-    delete currentQuestion.answerLetter
-    questions.push(currentQuestion)
-    currentQuestion = null
+  if (esaiList.length > 0) {
+    formattedText += 'Soal Esai:\n'
+    esaiList.forEach((question, index) => {
+      formattedText += `${index + 1}. ${question.pertanyaan}\n`
+      if (question.kunci_jawaban) formattedText += `   Kunci: ${question.kunci_jawaban}\n`
+    })
+    formattedText += '\n'
   }
 
-  for (const line of text.split('\n')) {
-    const questionMatch = line.match(/^\s*\d+[.)]\s*(.+)$/)
-    const optionMatch = line.match(/^\s*([A-D])[.)]\s*(.+)$/i)
-    const answerMatch = line.match(/^\s*Jawaban:\s*([A-D])\s*$/i)
-
-    if (questionMatch) {
-      saveCurrentQuestion()
-      currentQuestion = {
-        id: Date.now() + questions.length,
-        title: questionMatch[1].trim(),
-        type: 'short_answer',
-        options: [],
-        answerKey: '',
-        points: 10,
-      }
-    } else if (currentQuestion && optionMatch) {
-      currentQuestion.type = 'multiple_choice'
-      currentQuestion.options.push(optionMatch[2].trim())
-    } else if (currentQuestion && answerMatch) {
-      currentQuestion.answerLetter = answerMatch[1].toUpperCase()
-    }
+  if (pgList.length > 0) {
+    formattedText += 'Soal Pilihan Ganda:\n'
+    pgList.forEach((question, index) => {
+      const nomor = esaiList.length + index + 1
+      formattedText += `${nomor}. ${question.pertanyaan}\n`
+      question.opsi?.forEach((option) => {
+        formattedText += `${option.huruf}. ${option.teks}\n`
+      })
+      formattedText += `Jawaban: ${question.kunci_jawaban}\n\n`
+    })
   }
 
-  saveCurrentQuestion()
-  return questions
+  return formattedText.trim()
 }
 
 function openFilePicker() {
@@ -126,17 +78,36 @@ function formatFileSize(bytes) {
 }
 
 async function handleSubmitPrompt() {
+  if (isGeneratingAi.value) return
+
   const prompt = inputPrompt.value.trim()
   if (!prompt && attachedFiles.value.length === 0) return
 
-  userMessage.value = prompt || 'Tolong analisis dokumen ini.'
-  submittedAttachments.value = attachedFiles.value.map(({ name, size }) => ({ name, size }))
+  const userMessage = prompt || 'Tolong analisis dokumen ini.'
+  const history = conversationMessages.value
+    .filter((message) => typeof message.content === 'string' && message.content.trim())
+    .map(({ role, content }) => ({ role, content }))
+  const userAttachments = attachedFiles.value.map(({ name, size }) => ({ name, size }))
   attachedFiles.value = []
   isSubmitted.value = true
   inputPrompt.value = ''
   isGeneratingAi.value = true
-  currentAiDisplayResponse.value = 'Sedang membuat butir soal dan kunci jawaban dengan AI...'
 
+  conversationMessages.value.push({
+    id: `user-${Date.now()}`,
+    role: 'user',
+    content: userMessage,
+    displayContent: userMessage,
+    attachments: userAttachments,
+  })
+  const assistantMessage = {
+    id: `assistant-${Date.now()}`,
+    role: 'assistant',
+    content: null,
+    displayContent: '',
+    isGenerating: true,
+  }
+  conversationMessages.value.push(assistantMessage)
   nextTick(() => {
     if (chatScrollAreaRef.value) {
       chatScrollAreaRef.value.scrollTop = chatScrollAreaRef.value.scrollHeight
@@ -144,56 +115,39 @@ async function handleSubmitPrompt() {
   })
 
   try {
-    const aiData = await generateQuizAI({ prompt: userMessage.value, jumlahPg: 3, jumlahEsai: 2 })
-    if (aiData && aiData.soal) {
-      suggestedTaskTitle.value = aiData.judul || userMessage.value
-      let formattedText = `Berikut soal yang berhasil dibuat untuk "${aiData.judul || userMessage.value}":\n\n`
-      
-      const esaiList = aiData.soal.filter((s) => s.tipe === 'essay')
-      const pgList = aiData.soal.filter((s) => s.tipe === 'multiple_choice')
-      
-      if (esaiList.length > 0) {
-        formattedText += `Soal Esai:\n`
-        esaiList.forEach((s, idx) => {
-          formattedText += `${idx + 1}. ${s.pertanyaan}\n`
-          if (s.kunci_jawaban) formattedText += `   Kunci: ${s.kunci_jawaban}\n`
-        })
-        formattedText += `\n`
-      }
-
-      if (pgList.length > 0) {
-        formattedText += `Soal Pilihan Ganda:\n`
-        pgList.forEach((s, idx) => {
-          const nomor = esaiList.length + idx + 1
-          formattedText += `${nomor}. ${s.pertanyaan}\n`
-          s.opsi?.forEach((op) => {
-            formattedText += `${op.huruf}. ${op.teks}\n`
-          })
-          formattedText += `Jawaban: ${s.kunci_jawaban}\n\n`
-        })
-      }
-
-      currentAiDisplayResponse.value = formattedText.trim()
-      
-      // Simpan format terstruktur
-      generatedQuestionsList.value = aiData.soal.map((s, idx) => ({
-        id: Date.now() + idx,
-        title: s.pertanyaan,
-        type: s.tipe === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
-        options: s.opsi ? s.opsi.map((o) => o.teks) : [],
-        answerKey:
-          s.tipe === 'multiple_choice'
-            ? resolveMultipleChoiceAnswerKey(s.opsi, s.kunci_jawaban)
-            : s.kunci_jawaban || '',
-        rubric: s.rubrik || [],
-        points: s.bobot || 10,
-      }))
+    const aiData = await generateQuizAI({
+      prompt: userMessage,
+      history,
+      jumlahPg: 3,
+      jumlahEsai: 2,
+    })
+    if (!Array.isArray(aiData?.soal)) {
+      throw new Error('AI tidak mengembalikan struktur soal yang valid.')
     }
+
+    suggestedTaskTitle.value = aiData.judul || userMessage
+    assistantMessage.content = JSON.stringify(aiData)
+    assistantMessage.displayContent = formatQuizResponse(aiData)
+    assistantMessage.isGenerating = false
+    latestQuizMessageId.value = assistantMessage.id
+    generatedQuestionsList.value = aiData.soal.map((question, index) => ({
+      id: Date.now() + index,
+      title: question.pertanyaan,
+      type: question.tipe === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
+      options: question.opsi ? question.opsi.map((option) => option.teks) : [],
+      answerKey:
+        question.tipe === 'multiple_choice'
+          ? resolveMultipleChoiceAnswerKey(question.opsi, question.kunci_jawaban)
+          : question.kunci_jawaban || '',
+      rubric: question.rubrik || [],
+      points: question.bobot || 10,
+    }))
   } catch (err) {
-    console.warn('[AI Quiz Fallback]', err)
-    suggestedTaskTitle.value = userMessage.value
-    currentAiDisplayResponse.value = defaultAiResponse
-    generatedQuestionsList.value = parseGeneratedQuestions(defaultAiResponse)
+    console.error('[AI Quiz]', err)
+    assistantMessage.content = null
+    assistantMessage.displayContent = `Gagal membuat soal: ${err.message}`
+    assistantMessage.isError = true
+    assistantMessage.isGenerating = false
   } finally {
     isGeneratingAi.value = false
     nextTick(() => {
@@ -212,17 +166,12 @@ function handleKeyDown(e) {
 }
 
 function handleAgree() {
-  // Navigasi ke halaman buat soal manual dengan data AI di state
-  const finalQuestions = generatedQuestionsList.value.length > 0
-    ? generatedQuestionsList.value
-    : parseGeneratedQuestions(currentAiDisplayResponse.value || defaultAiResponse)
-
   router.push({
     name: 'create-quiz-manual',
     params: { id: classId.value },
     state: {
-      aiTitle: suggestedTaskTitle.value || userMessage.value || 'Kuis AI',
-      aiQuestions: JSON.stringify(finalQuestions),
+      aiTitle: suggestedTaskTitle.value || 'Kuis AI',
+      aiQuestions: JSON.stringify(generatedQuestionsList.value),
     },
   })
 }
@@ -372,17 +321,17 @@ function handleAgree() {
           ref="chatScrollAreaRef"
           class="flex-1 min-h-0 overflow-y-auto space-y-6 px-2 py-2 pr-3 sm:px-3 sm:py-3 sm:pr-4"
         >
-          <!-- Balon Chat User (Sisi Kanan Atas dengan Ekor Kanan Bawah Sesuai Foto 2) -->
-          <div class="flex justify-end pt-2">
+          <template v-for="message in conversationMessages" :key="message.id">
+            <div v-if="message.role === 'user'" class="flex justify-end pt-2">
             <div class="relative max-w-[85%] sm:max-w-2xl">
               <!-- Kotak Balon User: Border biru melengkung, sudut kanan bawah menjadi pangkal ekor -->
               <div
                 class="rounded-[24px] rounded-br-[4px] border-2 border-[#2864E8] bg-white px-5 py-3.5 sm:px-6 sm:py-4 text-sm sm:text-base font-medium text-[#222222] shadow-sm leading-relaxed"
               >
-                {{ userMessage }}
-                <div v-if="submittedAttachments.length" class="mt-3 flex flex-wrap gap-2">
+                {{ message.displayContent }}
+                <div v-if="message.attachments.length" class="mt-3 flex flex-wrap gap-2">
                   <span
-                    v-for="(file, index) in submittedAttachments"
+                    v-for="(file, index) in message.attachments"
                     :key="`${file.name}-${file.size}-${index}`"
                     class="max-w-full truncate rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-normal text-[#555555]"
                   >
@@ -408,16 +357,16 @@ function handleAgree() {
                 />
               </svg>
             </div>
-          </div>
+            </div>
 
-          <!-- Balon Chat AI (Sisi Kiri dengan Ekor Kiri Bawah Sesuai Foto 2) -->
-          <div class="flex justify-start">
+            <div v-else class="flex justify-start">
             <div class="relative max-w-[96%] sm:max-w-3xl w-full">
               <!-- Kotak Balon AI: Border biru melengkung, sudut kiri bawah menjadi pangkal ekor -->
               <div
                 class="rounded-[28px] rounded-bl-[4px] border-2 border-[#2864E8] bg-white p-5 sm:p-8 text-xs sm:text-sm lg:text-[15px] font-normal text-[#222222] shadow-sm leading-relaxed whitespace-pre-line"
+                :class="{ 'text-red-700': message.isError }"
               >
-                <div v-if="isGeneratingAi" class="flex items-center gap-3 text-slate-500 font-medium py-2">
+                <div v-if="message.isGenerating" class="flex items-center gap-3 text-slate-500 font-medium py-2">
                   <svg class="animate-spin size-5 text-[#2864E8]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -425,7 +374,7 @@ function handleAgree() {
                   <span>Sedang memproses dan menyusun soal dengan AI...</span>
                 </div>
                 <div v-else>
-                  {{ currentAiDisplayResponse }}
+                  {{ message.displayContent }}
                 </div>
               </div>
 
@@ -445,17 +394,19 @@ function handleAgree() {
                   stroke-linecap="round"
                 />
               </svg>
-              <div class="mt-3 flex justify-end">
+              <div v-if="message.id === latestQuizMessageId" class="mt-3 flex justify-end">
                 <button
                   type="button"
-                  class="motion-control cursor-pointer rounded-xl bg-[#2864E8] px-8 py-2.5 text-sm font-semibold text-white shadow-md transition duration-200 hover:bg-[#1f50be] hover:shadow-lg active:scale-95 sm:px-10 sm:py-3 sm:text-base"
+                  class="motion-control cursor-pointer rounded-xl bg-[#2864E8] px-8 py-2.5 text-sm font-semibold text-white shadow-md transition duration-200 hover:bg-[#1f50be] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 sm:px-10 sm:py-3 sm:text-base"
+                  :disabled="isGeneratingAi"
                   @click="handleAgree"
                 >
                   Setuju
                 </button>
               </div>
             </div>
-          </div>
+            </div>
+          </template>
         </div>
 
         <!-- Tombol / Bar Ketik Perintah (Posisi Tetap / Pinned di Bagian Bawah Kotak) -->
@@ -505,14 +456,16 @@ function handleAgree() {
               type="text"
               placeholder="Mulai berdiskusi"
               class="w-full bg-transparent px-3 text-sm text-[#444444] placeholder-[#888888] outline-none sm:px-4 sm:text-base lg:text-lg"
+              :disabled="isGeneratingAi"
               @keydown="handleKeyDown"
             />
 
             <!-- Tombol Kirim Kanan -->
             <button
               type="button"
-              class="cursor-pointer shrink-0 transition hover:scale-105 active:scale-95 text-[#2864E8] p-1"
+              class="cursor-pointer shrink-0 transition hover:scale-105 active:scale-95 text-[#2864E8] p-1 disabled:cursor-not-allowed disabled:opacity-60"
               aria-label="Kirim Perintah"
+              :disabled="isGeneratingAi"
               @click="handleSubmitPrompt"
             >
               <img :src="sendFillIcon" alt="Kirim" class="size-6 sm:size-7" />

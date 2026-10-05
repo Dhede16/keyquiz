@@ -8,12 +8,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000
 /**
  * Panggil AI untuk membuat soal pilihan ganda & esai secara otomatis.
  */
-export async function generateQuizAI({ prompt, jumlahPg = 3, jumlahEsai = 2 }) {
+export async function generateQuizAI({ prompt, history = [], jumlahPg = 3, jumlahEsai = 2 }) {
   const response = await fetch(`${API_BASE_URL}/ai/generate-quiz`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt,
+      history,
       jumlah_pg: Number(jumlahPg),
       jumlah_esai: Number(jumlahEsai),
     }),
