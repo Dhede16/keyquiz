@@ -1,7 +1,8 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import { useAuth } from '@/composables/useAuth.js'
+import { formatErrorMessage } from '@/utils/errorMessage.js'
 
 import userIcon from '@/assets/icons/User.svg'
 import messageIcon from '@/assets/icons/Message.svg'
@@ -15,6 +16,9 @@ const isEditing = ref(false)
 
 const fileInputRef = ref(null)
 const avatarUrl = ref(user.value?.avatarUrl || '')
+const savedAvatarUrl = ref(avatarUrl.value)
+const avatarFile = ref(null)
+const avatarPreviewUrl = ref('')
 const saveSuccess = ref(false)
 const isSaving = ref(false)
 const saveError = ref('')
@@ -38,6 +42,7 @@ watch(user, (currentUser) => {
     gender: currentUser.gender || '',
   }
   avatarUrl.value = currentUser.avatarUrl || ''
+  savedAvatarUrl.value = avatarUrl.value
   savedForm.value = { ...form.value }
 })
 
@@ -67,12 +72,15 @@ function triggerPhotoUpload() {
 
 function readResizedAvatar(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Foto tidak dapat dibaca.'))
-    reader.onload = () => {
-      const image = new Image()
-      image.onerror = () => reject(new Error('Format foto tidak dapat dibuka.'))
-      image.onload = () => {
+    const image = new Image()
+    const sourceUrl = URL.createObjectURL(file)
+    image.onerror = () => {
+      URL.revokeObjectURL(sourceUrl)
+      reject(new Error('Format foto tidak dapat dibuka.'))
+    }
+    image.onload = () => {
+      URL.revokeObjectURL(sourceUrl)
+      try {
         const canvas = document.createElement('canvas')
         const scale = Math.min(1, 256 / Math.max(image.width, image.height))
         canvas.width = Math.max(1, Math.round(image.width * scale))
@@ -83,43 +91,75 @@ function readResizedAvatar(file) {
           return
         }
         context.drawImage(image, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.82))
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Foto tidak dapat diproses.'))
+              return
+            }
+            resolve(blob)
+          },
+          'image/jpeg',
+          0.82,
+        )
+      } catch (error) {
+        reject(error)
       }
-      image.src = String(reader.result)
     }
-    reader.readAsDataURL(file)
+    image.src = sourceUrl
   })
 }
 
 async function handlePhotoChange(event) {
+  const input = event.currentTarget
   const file = event.target.files?.[0]
   if (!file) return
-  if (!file.type.startsWith('image/')) {
-    saveError.value = 'Pilih file gambar untuk foto profil.'
+  input.value = ''
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    saveError.value = 'Pilih foto berformat JPG, PNG, atau WebP.'
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    saveError.value = 'Ukuran foto maksimal 5 MB.'
     return
   }
 
   try {
-    avatarUrl.value = await readResizedAvatar(file)
+    const resizedAvatar = await readResizedAvatar(file)
+    if (avatarPreviewUrl.value) URL.revokeObjectURL(avatarPreviewUrl.value)
+    avatarFile.value = resizedAvatar
+    avatarPreviewUrl.value = URL.createObjectURL(resizedAvatar)
+    avatarUrl.value = avatarPreviewUrl.value
     saveError.value = ''
   } catch (error) {
     console.error('[Pengaturan Profil] Gagal memproses foto profil:', error)
-    saveError.value = 'Foto profil gagal diproses. Coba pilih gambar lain.'
+    saveError.value = error.message || 'Foto profil gagal diproses. Coba pilih gambar lain.'
   }
 }
+
+function clearAvatarPreview() {
+  if (avatarPreviewUrl.value) URL.revokeObjectURL(avatarPreviewUrl.value)
+  avatarPreviewUrl.value = ''
+  avatarFile.value = null
+}
+
+onBeforeUnmount(clearAvatarPreview)
 
 async function handleSave() {
   saveError.value = ''
   saveSuccess.value = false
   isSaving.value = true
   try {
-    await updateProfile({
+    const updatedUser = await updateProfile({
       name: form.value.fullName,
       birthDate: form.value.birthDate,
       phone: form.value.phone,
       gender: form.value.gender,
-      avatarUrl: avatarUrl.value,
+      avatarFile: avatarFile.value,
     })
+    clearAvatarPreview()
+    avatarUrl.value = updatedUser.avatarUrl || ''
+    savedAvatarUrl.value = avatarUrl.value
     form.value.email = user.value?.email || form.value.email
     savedForm.value = { ...form.value }
     saveSuccess.value = true
@@ -129,7 +169,10 @@ async function handleSave() {
     }, 2500)
   } catch (error) {
     console.error('[Pengaturan Profil] Gagal menyimpan profil:', error)
-    saveError.value = 'Profil gagal disimpan. Periksa koneksi lalu coba lagi.'
+    const message = formatErrorMessage(error)
+    saveError.value = message.toLowerCase().includes('bucket not found')
+      ? 'Bucket Storage "profile" belum tersedia. Jalankan database/migrations/20261006_profile_storage.sql di Supabase SQL Editor.'
+      : `Profil gagal disimpan: ${message || 'Periksa koneksi lalu coba lagi.'}`
   } finally {
     isSaving.value = false
   }
@@ -138,11 +181,15 @@ async function handleSave() {
 function startEditing() {
   saveError.value = ''
   savedForm.value = { ...form.value }
+  savedAvatarUrl.value = avatarUrl.value
+  clearAvatarPreview()
   isEditing.value = true
 }
 
 function cancelEditing() {
   Object.assign(form.value, savedForm.value)
+  clearAvatarPreview()
+  avatarUrl.value = savedAvatarUrl.value
   isEditing.value = false
 }
 </script>
@@ -285,6 +332,7 @@ function cancelEditing() {
         <div class="mb-4 flex items-center justify-between border-b border-[#eee] pb-3">
           <button
             type="button"
+            :disabled="isSaving"
             class="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-[#2864E8] hover:underline cursor-pointer"
             @click="cancelEditing"
           >
@@ -305,7 +353,7 @@ function cancelEditing() {
         <input
           ref="fileInputRef"
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           class="hidden"
           @change="handlePhotoChange"
         />
@@ -335,6 +383,7 @@ function cancelEditing() {
 
           <button
             type="button"
+            :disabled="isSaving"
             class="mt-4 cursor-pointer rounded-xl bg-[#2864E8] px-7 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1f52c4] active:scale-[0.98] sm:text-base"
             @click="triggerPhotoUpload"
           >
@@ -477,6 +526,7 @@ function cancelEditing() {
             <div class="flex items-center gap-3">
               <button
                 type="button"
+                :disabled="isSaving"
                 class="cursor-pointer rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-[#555555] transition hover:bg-slate-50 sm:text-base sm:py-3.5"
                 @click="cancelEditing"
               >

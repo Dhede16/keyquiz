@@ -177,25 +177,74 @@ export function useAuth() {
     }
   }
 
-  async function updateProfile({ name, birthDate, phone, gender, avatarUrl }) {
+  async function updateProfile({ name, birthDate, phone, gender, avatarFile }) {
     if (!user.value?.id) {
       throw new Error('Sesi pengguna tidak ditemukan. Silakan masuk kembali.')
     }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .update({
-        name: name.trim(),
-        avatar_url: avatarUrl || null,
-        birth_date: birthDate || null,
-        phone: phone.trim() || null,
-        gender: gender || null,
-      })
-      .eq('id', user.value.id)
-      .select('name, avatar_url, birth_date, phone, gender')
-      .single()
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await supabase.auth.getUser()
+    if (authError) throw authError
+    if (!authUser) {
+      throw new Error('Sesi pengguna tidak ditemukan. Silakan masuk kembali.')
+    }
+    if (user.value.id !== authUser.id) {
+      throw new Error('Akun sesi berubah. Muat ulang halaman sebelum menyimpan profil.')
+    }
 
-    if (error) throw error
+    let avatarUrl = user.value.avatarUrl || ''
+    if (avatarFile) {
+      const avatarPath = `${authUser.id}/avatar.jpg`
+      const { error: uploadError } = await supabase.storage
+        .from('profile')
+        .upload(avatarPath, avatarFile, {
+          cacheControl: '0',
+          contentType: 'image/jpeg',
+          upsert: true,
+        })
+      if (uploadError) throw uploadError
+
+      const { data: publicUrlData } = supabase.storage.from('profile').getPublicUrl(avatarPath)
+      avatarUrl = publicUrlData.publicUrl
+    }
+
+    const profileFields = {
+      name: name.trim(),
+      avatar_url: avatarUrl || null,
+      birth_date: birthDate || null,
+      phone: phone.trim() || null,
+      gender: gender || null,
+    }
+    const selectedProfileFields = 'name, avatar_url, birth_date, phone, gender'
+
+    const { data: existingProfile, error: updateError } = await supabase
+      .from('profiles')
+      .update(profileFields)
+      .eq('id', authUser.id)
+      .select(selectedProfileFields)
+      .maybeSingle()
+
+    if (updateError) throw updateError
+
+    let data = existingProfile
+    if (!data) {
+      if (!authUser.email) throw new Error('Email akun tidak tersedia untuk membuat profil.')
+      const { data: insertedProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: authUser.id,
+          email: authUser.email,
+          role: user.value.role || authUser.user_metadata?.role || 'student',
+          ...profileFields,
+        })
+        .select(selectedProfileFields)
+        .single()
+
+      if (insertError) throw insertError
+      data = insertedProfile
+    }
 
     const userData = {
       ...user.value,

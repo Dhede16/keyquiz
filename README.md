@@ -84,7 +84,9 @@ python database/init_db.py
 > **Output Sukses:** `[SUKSES] Semua tabel, trigger, dan RLS policy berhasil dibuat di Supabase!`
 
 > **Untuk proyek Supabase yang sudah ada:** setelah memperbarui skema, jalankan `database/migrations/20261005_remove_profile_plaintext_password.sql` di SQL Editor untuk menghapus salinan kata sandi lama dari profil dan metadata autentikasi.
+> Untuk memastikan kolom data diri tersedia di tabel `profiles`, jalankan `database/migrations/20261006_profile_columns.sql` di Supabase SQL Editor.
 > Untuk mengaktifkan folder arsip scan, jalankan `database/migrations/20261006_scanned_sheet_archives.sql` di Supabase SQL Editor. Migrasi ini membuat tabel arsip, bucket Storage privat, dan policy akses dosen, lalu meminta PostgREST memuat ulang schema cache.
+> Untuk mengaktifkan foto profil dosen dan mahasiswa, jalankan `database/migrations/20261006_profile_storage.sql` di Supabase SQL Editor. Migrasi ini membuat bucket publik `profile` (maksimal 2 MB, JPEG) dan membatasi upload, penggantian, serta penghapusan ke folder UUID pengguna yang sedang login.
 
 ---
 
