@@ -55,7 +55,7 @@ async function initAuthSession() {
       // Ambil detail profile dari tabel profiles
       const { data: profile } = await supabase
         .from('profiles')
-        .select('name, role, birth_date, phone, gender')
+        .select('name, role, avatar_url, birth_date, phone, gender')
         .eq('id', session.user.id)
         .single()
 
@@ -64,6 +64,7 @@ async function initAuthSession() {
         email: session.user.email,
         name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
         role: profile?.role || session.user.user_metadata?.role || 'student',
+        avatarUrl: profile?.avatar_url || '',
         birthDate: profile?.birth_date || '',
         phone: profile?.phone || '',
         gender: profile?.gender || '',
@@ -80,7 +81,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('name, role, birth_date, phone, gender')
+      .select('name, role, avatar_url, birth_date, phone, gender')
       .eq('id', session.user.id)
       .single()
 
@@ -89,6 +90,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       email: session.user.email,
       name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
       role: profile?.role || session.user.user_metadata?.role || 'student',
+      avatarUrl: profile?.avatar_url || '',
       birthDate: profile?.birth_date || '',
       phone: profile?.phone || '',
       gender: profile?.gender || '',
@@ -130,7 +132,7 @@ export function useAuth() {
       if (data?.user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('name, role, birth_date, phone, gender')
+          .select('name, role, avatar_url, birth_date, phone, gender')
           .eq('id', data.user.id)
           .single()
 
@@ -139,6 +141,7 @@ export function useAuth() {
           email: data.user.email,
           name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
           role: profile?.role || role || data.user.user_metadata?.role || 'student',
+          avatarUrl: profile?.avatar_url || '',
           birthDate: profile?.birth_date || '',
           phone: profile?.phone || '',
           gender: profile?.gender || '',
@@ -174,7 +177,7 @@ export function useAuth() {
     }
   }
 
-  async function updateProfile({ name, birthDate, phone, gender }) {
+  async function updateProfile({ name, birthDate, phone, gender, avatarUrl }) {
     if (!user.value?.id) {
       throw new Error('Sesi pengguna tidak ditemukan. Silakan masuk kembali.')
     }
@@ -183,12 +186,13 @@ export function useAuth() {
       .from('profiles')
       .update({
         name: name.trim(),
+        avatar_url: avatarUrl || null,
         birth_date: birthDate || null,
         phone: phone.trim() || null,
         gender: gender || null,
       })
       .eq('id', user.value.id)
-      .select('name, birth_date, phone, gender')
+      .select('name, avatar_url, birth_date, phone, gender')
       .single()
 
     if (error) throw error
@@ -196,6 +200,7 @@ export function useAuth() {
     const userData = {
       ...user.value,
       name: data.name,
+      avatarUrl: data.avatar_url || '',
       birthDate: data.birth_date || '',
       phone: data.phone || '',
       gender: data.gender || '',

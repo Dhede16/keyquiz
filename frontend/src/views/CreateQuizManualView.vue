@@ -22,8 +22,8 @@ const currentClass = computed(() => {
 })
 
 // Header Formulir
-const formTitle = ref('Formulir Tanpa Judul')
-const formDesc = ref('Deskripsi Formulir')
+const formTitle = ref('')
+const formDesc = ref('')
 const showScore = ref(true)
 const showCorrectAnswers = ref(false)
 const activeSheet = ref('questions')
@@ -47,16 +47,16 @@ const questionTypes = [
 const questions = ref([
   {
     id: 1,
-    title: 'Pertanyaan Tanpa Judul',
+    title: '',
     type: 'multiple_choice',
-    options: ['Opsi 1'],
+    options: [''],
     answerKey: '',
     points: 50,
     showAnswerKeyModal: false,
   },
   {
     id: 2,
-    title: 'Pertanyaan Tanpa Judul',
+    title: '',
     type: 'short_answer',
     options: [],
     answerKey: '',
@@ -104,9 +104,9 @@ const pointError = ref('')
 function addQuestion() {
   questions.value.push({
     id: Date.now(),
-    title: 'Pertanyaan Tanpa Judul',
+    title: '',
     type: 'multiple_choice',
-    options: ['Opsi 1'],
+    options: [''],
     answerKey: '',
     points: 10,
     showAnswerKeyModal: false,
@@ -124,7 +124,7 @@ function removeQuestion(index) {
 
 // Tambah Opsi pada Pilihan Ganda
 function addOption(q) {
-  q.options.push(`Opsi ${q.options.length + 1}`)
+  q.options.push('')
 }
 
 // Hapus Opsi
@@ -187,8 +187,8 @@ function saveForm(deadline) {
     }),
     deadlineDate: deadline.date,
     deadlineTime: deadline.time,
-    deadlineTimezone: 'WITA',
-    dueAt: `${deadline.date}T${deadline.time}:00+08:00`,
+    deadlineTimezone: 'WIB',
+    dueAt: `${deadline.date}T${deadline.time}:00+07:00`,
     questions: questions.value.map(({ id, title, type, options, answerKey, points }) => ({
       id,
       title,
@@ -383,7 +383,8 @@ function handleCloseSaved() {
                       <input
                         v-model="q.options[optIndex]"
                         type="text"
-                        class="flex-1 text-sm sm:text-base font-normal text-[#444444] outline-none border-b border-transparent focus:border-slate-300 pb-0.5"
+                        :placeholder="`Opsi ${optIndex + 1}`"
+                        class="flex-1 text-sm sm:text-base font-normal text-[#444444] outline-none border-b border-transparent placeholder:text-[#999999] focus:border-slate-300 pb-0.5"
                       />
 
                       <!-- Tombol Hapus Opsi jika lebih dari 1 -->
@@ -561,8 +562,8 @@ function handleCloseSaved() {
             >
             <div class="space-y-2">
               <label
-                v-for="opt in activeQuestionForModal.options"
-                :key="opt"
+                v-for="(opt, optIndex) in activeQuestionForModal.options"
+                :key="optIndex"
                 class="flex items-center gap-2.5 rounded-xl border p-2.5 text-xs sm:text-sm cursor-pointer transition"
                 :class="
                   activeQuestionForModal.answerKey === opt

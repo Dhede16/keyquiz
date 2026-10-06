@@ -42,8 +42,8 @@ export const classes = classDefinitions.map((classDefinition, index) => ({
           date: 'Jumat, 16 Oktober 2026',
           deadlineDate: '2026-10-16',
           deadlineTime: '23:59',
-          deadlineTimezone: 'WITA',
-          dueAt: '2026-10-16T23:59:00+08:00',
+          deadlineTimezone: 'WIB',
+          dueAt: '2026-10-16T23:59:00+07:00',
         }
       : {}),
     ...(classDefinition.title === 'Pemrograman Perangkat Bergerak' && task.id === 3
@@ -51,8 +51,8 @@ export const classes = classDefinitions.map((classDefinition, index) => ({
           date: 'Jumat, 16 Oktober 2026',
           deadlineDate: '2026-10-16',
           deadlineTime: '23:59',
-          deadlineTimezone: 'WITA',
-          dueAt: '2026-10-16T23:59:00+08:00',
+          deadlineTimezone: 'WIB',
+          dueAt: '2026-10-16T23:59:00+07:00',
         }
       : {}),
   })),

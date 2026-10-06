@@ -88,6 +88,7 @@ async function onSubmit() {
           label="Kata Sandi"
           type="password"
           autocomplete="new-password"
+          reveal-password
           required
         />
         <TextField
@@ -96,6 +97,7 @@ async function onSubmit() {
           label="Konfirmasi Kata Sandi"
           type="password"
           autocomplete="new-password"
+          reveal-password
           required
         />
       </div>

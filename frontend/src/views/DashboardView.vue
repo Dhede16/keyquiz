@@ -40,7 +40,7 @@ const upcomingQuizzes = computed(() => {
           const dueAt =
             task.dueAt ||
             (task.deadlineDate
-              ? `${task.deadlineDate}T${task.deadlineTime || '23:59'}:00+08:00`
+              ? `${task.deadlineDate}T${task.deadlineTime || '23:59'}:00+07:00`
               : '')
           return { classItem, task, dueAt, dueTimestamp: dueAt ? new Date(dueAt).getTime() : 0 }
         }),
@@ -200,7 +200,7 @@ function formatDeadline(timestamp) {
             class="motion-control cursor-pointer text-base font-medium text-[#2864E8] transition hover:underline sm:text-[22px]"
             @click="isStudent ? openJoinModal() : openCreateModal()"
           >
-            + Tambah Kelas
+            {{ isStudent ? '+ Gabung Kelas' : '+ Tambah Kelas' }}
           </button>
         </div>
 
@@ -241,7 +241,7 @@ function formatDeadline(timestamp) {
             </template>
           </p>
           <p v-if="isStudent" class="mt-1.5 text-xs text-[#999999] sm:text-sm">
-            Klik tombol <strong>+ Tambah Kelas</strong> di atas dan masukkan kode kelas untuk bergabung.
+            Klik tombol <strong>+ Gabung Kelas</strong> di atas dan masukkan kode kelas untuk bergabung.
           </p>
           <p v-else class="mt-1.5 text-xs text-[#999999] sm:text-sm">
             Klik tombol <strong>+ Tambah Kelas</strong> di atas untuk membuat kelas baru.

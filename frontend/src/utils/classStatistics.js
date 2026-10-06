@@ -19,6 +19,7 @@ export function getClassStatisticsStudents(members, tasks) {
       id: member.id || member.studentId,
       name: member.name,
       email: member.email,
+      avatarUrl: member.avatarUrl || '',
       average:
         completedScores.length > 0
           ? Math.round(

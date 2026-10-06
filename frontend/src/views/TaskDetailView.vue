@@ -10,7 +10,6 @@ import {
 } from '@/composables/useClasses.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
-import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
 import { gradeEssay, saveEssayKey } from '@/services/api.js'
 import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
@@ -61,7 +60,7 @@ const submissions = computed(() => currentTask.value?.submissions || [])
 const resultStudents = computed(() =>
   submissions.value.map((submission) => ({
     ...submission,
-    displayScore: submission.graded ? submission.score : 'Belum',
+    displayScore: submission.graded ? submission.score : 'Belum dinilai',
   })),
 )
 const maxScore = computed(() =>
@@ -172,6 +171,7 @@ async function submitAnswers() {
     const savedTask = await saveTaskSubmission(currentClass.value.id, currentTask.value.id, {
       email: user.value.email,
       name: user.value.name,
+      avatarUrl: user.value.avatarUrl || '',
       answers: submittedAnswers,
       score: null,
       maxScore: maxScore.value,
@@ -598,8 +598,29 @@ function openStudentResult(student) {
                   class="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#c9c9c9] p-1.5 text-left shadow-[0_2px_3px_rgba(0,0,0,0.2)] transition hover:border-[#2864E8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2864E8] sm:gap-3 sm:p-2"
                   @click="openStudentResult(student)"
                 >
-                  <div class="size-14 shrink-0 overflow-hidden rounded-xl sm:size-16">
-                    <StudentAvatar />
+                  <div
+                    class="size-14 shrink-0 overflow-hidden rounded-full bg-[#D9D9D9] sm:size-16"
+                  >
+                    <img
+                      v-if="student.avatarUrl"
+                      :src="student.avatarUrl"
+                      :alt="`Foto profil ${student.name || student.email}`"
+                      class="size-full object-cover"
+                    />
+                    <svg
+                      v-else
+                      class="size-full text-[#757575]"
+                      viewBox="0 0 160 160"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden="true"
+                    >
+                      <circle cx="80" cy="62" r="28" fill="currentColor" />
+                      <path
+                        d="M32 144C32 116 54 98 80 98C106 98 128 116 128 144"
+                        fill="currentColor"
+                      />
+                    </svg>
                   </div>
                   <div class="min-w-0 flex-1">
                     <h3 class="truncate text-sm font-semibold text-[#777777] sm:text-base">
@@ -609,15 +630,14 @@ function openStudentResult(student) {
                       {{ student.email }}
                     </p>
                     <p class="mt-0.5 text-[10px] font-medium text-[#2864E8]">
-                      {{ student.graded ? 'Sudah dinilai · Klik untuk lihat' : 'Belum dinilai · Klik untuk koreksi' }}
+                      {{ student.graded ? 'Sudah dinilai · Klik untuk lihat' : 'Klik untuk koreksi' }}
                     </p>
                   </div>
                   <div
                     class="flex min-w-14 shrink-0 flex-col items-center rounded-lg px-2 py-1 text-xs font-medium leading-tight text-white shadow-sm sm:min-w-16 sm:py-1.5 sm:text-sm"
                     :class="student.graded ? 'bg-emerald-500' : 'bg-[#2864E8]'"
                   >
-                    <span>Nilai</span>
-                    <span>{{ student.displayScore }}</span>
+                    <span>{{ student.graded ? `Nilai ${student.displayScore}` : student.displayScore }}</span>
                   </div>
                 </button>
               </article>

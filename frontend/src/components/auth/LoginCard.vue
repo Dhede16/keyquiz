@@ -7,7 +7,7 @@ import SelectField from '@/components/ui/SelectField.vue'
 
 const email = ref('')
 const password = ref('')
-const role = ref('teacher')
+const role = ref('')
 const errorMsg = ref('')
 const successMsg = ref('')
 const loading = ref(false)
@@ -86,6 +86,7 @@ async function onSubmit() {
         label="Kata Sandi"
         type="password"
         autocomplete="current-password"
+        reveal-password
         required
       />
       <SelectField id="login-role" v-model="role" label="Masuk sebagai" :options="roles" />

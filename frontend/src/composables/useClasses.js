@@ -116,7 +116,8 @@ async function syncClassesFromSupabase(userEmail = null) {
           profiles (
             id,
             email,
-            name
+            name,
+            avatar_url
           )
         ),
         tugas (
@@ -158,7 +159,8 @@ async function syncClassesFromSupabase(userEmail = null) {
             profiles (
               id,
               email,
-              name
+              name,
+              avatar_url
             ),
             detail_jawaban (
               id,
@@ -202,6 +204,7 @@ async function syncClassesFromSupabase(userEmail = null) {
           joinedAt: ak.joined_at,
           email: ak.profiles?.email || '',
           name: ak.profiles?.name || 'Mahasiswa',
+          avatarUrl: ak.profiles?.avatar_url || '',
         }))
 
         const formattedTasks = (c.tugas || []).map((t) => {
@@ -232,6 +235,7 @@ async function syncClassesFromSupabase(userEmail = null) {
             studentId: jm.student_id,
             email: jm.profiles?.email || '',
             name: jm.profiles?.name || 'Mahasiswa',
+            avatarUrl: jm.profiles?.avatar_url || '',
             score: jm.total_score,
             graded: jm.status === 'graded',
             isScanned: jm.is_scanned,

@@ -3,7 +3,6 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
-import StudentAvatar from '@/components/icons/StudentAvatar.vue'
 import { defaultStudents } from '@/data/students.js'
 import { addTaskToClass, classes } from '@/composables/useClasses.js'
 import { canStudentViewTask, canTeacherViewTask } from '@/utils/scannedTaskAccess.js'
@@ -344,8 +343,29 @@ function getStudentSubmission(task) {
               class="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#c9c9c9] p-1.5 text-left shadow-[0_2px_3px_rgba(0,0,0,0.2)] transition hover:border-[#2864E8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2864E8] sm:gap-3 sm:p-2"
               @click="selectedStatisticStudent = student"
             >
-              <div class="size-14 shrink-0 overflow-hidden rounded-xl sm:size-16">
-                <StudentAvatar />
+              <div
+                class="size-14 shrink-0 overflow-hidden rounded-full bg-[#D9D9D9] sm:size-16"
+              >
+                <img
+                  v-if="student.avatarUrl"
+                  :src="student.avatarUrl"
+                  :alt="`Foto profil ${student.name}`"
+                  class="size-full object-cover"
+                />
+                <svg
+                  v-else
+                  class="size-full text-[#757575]"
+                  viewBox="0 0 160 160"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <circle cx="80" cy="62" r="28" fill="currentColor" />
+                  <path
+                    d="M32 144C32 116 54 98 80 98C106 98 128 116 128 144"
+                    fill="currentColor"
+                  />
+                </svg>
               </div>
               <div class="min-w-0 flex-1">
                 <h3 class="truncate text-sm font-semibold text-[#777777] sm:text-base">
@@ -401,7 +421,7 @@ function getStudentSubmission(task) {
           <section class="grid gap-3 sm:grid-cols-2 sm:gap-5" aria-label="Ringkasan nilai">
             <article class="rounded-xl bg-white px-4 py-6 text-center shadow-sm sm:py-7">
               <p class="text-lg font-bold text-[#2864E8] sm:text-2xl">
-                JUMLAH TUGAS: {{ statisticsTasks.length }}
+                JUMLAH KUIS: {{ statisticsTasks.length }}
               </p>
             </article>
             <article class="rounded-xl bg-white px-4 py-6 text-center shadow-sm sm:py-7">
@@ -414,35 +434,44 @@ function getStudentSubmission(task) {
           <section class="rounded-xl bg-white p-4 shadow-sm sm:p-6" aria-label="Nilai per kuis">
             <div class="overflow-x-auto">
               <div :style="{ minWidth: statisticChartWidth }">
-                <div class="relative h-[260px] border-b border-l border-[#b9b9b9] sm:h-[320px]">
+                <div class="relative h-[260px] sm:h-[320px]">
+                  <div
+                    class="absolute inset-y-0 left-10 right-0 border-b border-l border-[#b9b9b9]"
+                  >
+                    <div
+                      class="absolute inset-0 flex items-end justify-around gap-3 px-3 sm:gap-5 sm:px-5"
+                    >
+                      <div
+                        v-for="quiz in visibleStatisticStudent.quizScores"
+                        :key="quiz.id"
+                        class="flex h-full min-w-0 flex-1 items-end justify-center"
+                      >
+                        <div
+                          v-if="quiz.score !== null"
+                          class="w-full max-w-[140px] rounded-t-sm bg-[#4f7fea] transition-[height] duration-500"
+                          :style="{ height: getScoreHeight(quiz.score) }"
+                          :title="`${quiz.title}: ${quiz.score}`"
+                        />
+                        <div v-else class="h-0 w-full max-w-[140px]" />
+                      </div>
+                    </div>
+                  </div>
                   <div
                     v-for="tick in [0, 20, 40, 60, 80, 100]"
                     :key="tick"
-                    class="absolute left-0 right-0 border-t border-dotted border-[#dddddd]"
+                    class="pointer-events-none absolute left-10 right-0 border-t border-dotted border-[#dddddd]"
                     :style="{ top: `${100 - tick}%` }"
-                  >
-                    <span
-                      class="absolute -left-10 -top-2.5 w-8 text-right text-[10px] text-[#777777]"
-                    >
-                      {{ tick }}
-                    </span>
-                  </div>
+                  />
                   <div
-                    class="absolute inset-0 ml-1 flex items-end justify-around gap-3 px-3 sm:gap-5 sm:px-5"
+                    v-for="tick in [0, 20, 40, 60, 80, 100]"
+                    :key="`label-${tick}`"
+                    class="pointer-events-none absolute left-0 w-8 text-right text-[10px] text-[#777777]"
+                    :style="{
+                      top: `${100 - tick}%`,
+                      transform: `translateY(${tick === 100 ? '0' : tick === 0 ? '-100%' : '-50%'})`,
+                    }"
                   >
-                    <div
-                      v-for="quiz in visibleStatisticStudent.quizScores"
-                      :key="quiz.id"
-                      class="flex h-full min-w-0 flex-1 items-end justify-center"
-                    >
-                      <div
-                        v-if="quiz.score !== null"
-                        class="w-full max-w-[140px] rounded-t-sm bg-[#4f7fea] transition-[height] duration-500"
-                        :style="{ height: getScoreHeight(quiz.score) }"
-                        :title="`${quiz.title}: ${quiz.score}`"
-                      />
-                      <div v-else class="h-0 w-full max-w-[140px]" />
-                    </div>
+                    {{ tick }}
                   </div>
                 </div>
                 <div

@@ -14,7 +14,7 @@ const { user, updateProfile } = useAuth()
 const isEditing = ref(false)
 
 const fileInputRef = ref(null)
-const avatarUrl = ref(null)
+const avatarUrl = ref(user.value?.avatarUrl || '')
 const saveSuccess = ref(false)
 const isSaving = ref(false)
 const saveError = ref('')
@@ -37,6 +37,7 @@ watch(user, (currentUser) => {
     phone: currentUser.phone || '',
     gender: currentUser.gender || '',
   }
+  avatarUrl.value = currentUser.avatarUrl || ''
   savedForm.value = { ...form.value }
 })
 
@@ -64,13 +65,46 @@ function triggerPhotoUpload() {
   fileInputRef.value?.click()
 }
 
-function handlePhotoChange(event) {
-  const file = event.target.files?.[0]
-  if (file && file.type.startsWith('image/')) {
-    if (avatarUrl.value) {
-      URL.revokeObjectURL(avatarUrl.value)
+function readResizedAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Foto tidak dapat dibaca.'))
+    reader.onload = () => {
+      const image = new Image()
+      image.onerror = () => reject(new Error('Format foto tidak dapat dibuka.'))
+      image.onload = () => {
+        const canvas = document.createElement('canvas')
+        const scale = Math.min(1, 256 / Math.max(image.width, image.height))
+        canvas.width = Math.max(1, Math.round(image.width * scale))
+        canvas.height = Math.max(1, Math.round(image.height * scale))
+        const context = canvas.getContext('2d')
+        if (!context) {
+          reject(new Error('Foto tidak dapat diproses.'))
+          return
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      image.src = String(reader.result)
     }
-    avatarUrl.value = URL.createObjectURL(file)
+    reader.readAsDataURL(file)
+  })
+}
+
+async function handlePhotoChange(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    saveError.value = 'Pilih file gambar untuk foto profil.'
+    return
+  }
+
+  try {
+    avatarUrl.value = await readResizedAvatar(file)
+    saveError.value = ''
+  } catch (error) {
+    console.error('[Pengaturan Profil] Gagal memproses foto profil:', error)
+    saveError.value = 'Foto profil gagal diproses. Coba pilih gambar lain.'
   }
 }
 
@@ -84,6 +118,7 @@ async function handleSave() {
       birthDate: form.value.birthDate,
       phone: form.value.phone,
       gender: form.value.gender,
+      avatarUrl: avatarUrl.value,
     })
     form.value.email = user.value?.email || form.value.email
     savedForm.value = { ...form.value }
