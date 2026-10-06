@@ -12,7 +12,9 @@ const isSyncing = ref(false)
 function loadInitialClasses() {
   try {
     const stored = JSON.parse(localStorage.getItem(CLASSES_STORAGE_KEY))
-    return Array.isArray(stored) && stored.length > 0 ? stored : [...initialClasses]
+    return Array.isArray(stored) && stored.length > 0
+      ? stored.map(({ archiveFolders, ...classItem }) => classItem)
+      : [...initialClasses]
   } catch {
     return [...initialClasses]
   }
@@ -20,7 +22,10 @@ function loadInitialClasses() {
 
 function saveLocal() {
   try {
-    localStorage.setItem(CLASSES_STORAGE_KEY, JSON.stringify(classes.value))
+    localStorage.setItem(
+      CLASSES_STORAGE_KEY,
+      JSON.stringify(classes.value.map(({ archiveFolders, ...classItem }) => classItem)),
+    )
   } catch {
     // Local storage fallback
   }
@@ -118,6 +123,25 @@ async function syncClassesFromSupabase(userEmail = null) {
             email,
             name,
             avatar_url
+          )
+        ),
+        scan_archive_folders (
+          id,
+          name,
+          created_at,
+          scan_archives (
+            id,
+            task_id,
+            student_id,
+            quiz_title,
+            original_file_path,
+            questions,
+            created_at,
+            profiles:student_id (
+              id,
+              email,
+              name
+            )
           )
         ),
         tugas (
@@ -305,6 +329,22 @@ async function syncClassesFromSupabase(userEmail = null) {
           code: c.code,
           members: formattedMembers,
           tasks: formattedTasks,
+          archiveFolders: (c.scan_archive_folders || []).map((folder) => ({
+            id: folder.id,
+            name: folder.name,
+            createdAt: folder.created_at,
+            archives: (folder.scan_archives || []).map((archive) => ({
+              id: archive.id,
+              taskId: archive.task_id,
+              studentId: archive.student_id,
+              studentEmail: archive.profiles?.email || '',
+              studentName: archive.profiles?.name || 'Mahasiswa',
+              title: archive.quiz_title,
+              originalFilePath: archive.original_file_path,
+              questions: archive.questions || [],
+              createdAt: archive.created_at,
+            })),
+          })),
         }
       })
 
@@ -715,11 +755,31 @@ async function saveTaskSubmission(classId, taskId, submission) {
   return updatedTask
 }
 
-async function saveScannedSubmission(classId, studentId, questions, quizTitle) {
+async function saveScannedSubmission(
+  classId,
+  studentId,
+  questions,
+  quizTitle,
+  { originalFile, folderId = null, folderName = '' } = {},
+) {
   const classItem = classes.value.find((item) => String(item.id) === String(classId))
   if (!classItem) throw new Error('Kelas yang dipilih tidak ditemukan.')
   if (!Array.isArray(questions) || questions.length === 0) {
     throw new Error('Tidak ada soal hasil scan untuk dikirim.')
+  }
+  if (
+    !originalFile ||
+    !['image/jpeg', 'image/png', 'image/webp'].includes(originalFile.type) ||
+    originalFile.size > 10 * 1024 * 1024
+  ) {
+    throw new Error('Foto scan wajib berupa JPG, PNG, atau WEBP dengan ukuran maksimal 10 MB.')
+  }
+  const usesExistingFolder = Boolean(folderId && folderId !== 'new')
+  if (!usesExistingFolder && !folderName.trim()) {
+    throw new Error('Nama folder arsip wajib diisi.')
+  }
+  if (!usesExistingFolder && folderName.trim().length > 100) {
+    throw new Error('Nama folder arsip maksimal 100 karakter.')
   }
   for (const [index, question] of questions.entries()) {
     if (
@@ -799,7 +859,54 @@ async function saveScannedSubmission(classId, studentId, questions, quizTitle) {
 
   const savedQuestionData = []
   let taskCreated = false
+  let archiveFolder = null
+  let archiveFolderCreated = false
+  let archiveFilePath = null
+  let archiveImageUploaded = false
   try {
+    if (folderId && folderId !== 'new') {
+      const { data, error } = await supabase
+        .from('scan_archive_folders')
+        .select('id, name, created_at')
+        .eq('id', folderId)
+        .eq('class_id', classItem.id)
+        .single()
+      if (error) throw new Error(`Folder arsip tidak dapat ditemukan: ${error.message}`)
+      archiveFolder = data
+    } else {
+      const { data, error } = await supabase
+        .from('scan_archive_folders')
+        .insert({
+          class_id: classItem.id,
+          created_by: user.id,
+          name: folderName.trim(),
+        })
+        .select('id, name, created_at')
+        .single()
+      if (error) {
+        const message = error.code === '23505'
+          ? 'Nama folder tersebut sudah digunakan di kelas ini.'
+          : ['PGRST205', '42P01'].includes(error.code)
+            ? 'Skema arsip belum tersedia di Supabase. Jalankan database/migrations/20261006_scanned_sheet_archives.sql di SQL Editor, lalu coba lagi.'
+            : error.message
+        throw new Error(`Gagal membuat folder arsip: ${message}`)
+      }
+      archiveFolder = data
+      archiveFolderCreated = true
+    }
+
+    const extensionByType = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    }
+    archiveFilePath = `${classItem.id}/${archiveFolder.id}/${crypto.randomUUID()}.${extensionByType[originalFile.type]}`
+    const { error: uploadError } = await supabase.storage
+      .from('scan-archives')
+      .upload(archiveFilePath, originalFile, { contentType: originalFile.type, upsert: false })
+    if (uploadError) throw new Error(`Gagal menyimpan foto scan ke arsip: ${uploadError.message}`)
+    archiveImageUploaded = true
+
     const { error: taskError } = await supabase.from('tugas').insert({
       id: taskId,
       kelas_id: classItem.id,
@@ -879,6 +986,31 @@ async function saveScannedSubmission(classId, studentId, questions, quizTitle) {
     const { error: detailsError } = await supabase.from('detail_jawaban').insert(details)
     if (detailsError) throw new Error(`Gagal menyimpan detail hasil scan: ${detailsError.message}`)
 
+    const archivedQuestions = questions.map((question) => ({
+      title: question.title,
+      options: question.options,
+      selectedOption: question.selectedOption,
+      answerKey: question.answerKey,
+      aiScore: Number(question.aiScore),
+      points: Number(question.points),
+      score: Number(question.score),
+      isCertain: Boolean(question.isCertain),
+    }))
+    const { data: archivedScan, error: archiveError } = await supabase
+      .from('scan_archives')
+      .insert({
+        class_id: classItem.id,
+        folder_id: archiveFolder.id,
+        task_id: taskId,
+        student_id: student.id,
+        quiz_title: cleanQuizTitle,
+        original_file_path: archiveFilePath,
+        questions: archivedQuestions,
+      })
+      .select('id, created_at')
+      .single()
+    if (archiveError) throw new Error(`Gagal menyimpan arsip hasil scan: ${archiveError.message}`)
+
     task.submissions.push({
       id: submission.id,
       studentId: student.id,
@@ -898,19 +1030,82 @@ async function saveScannedSubmission(classId, studentId, questions, quizTitle) {
     })
     classItem.tasks ||= []
     classItem.tasks.unshift(task)
+    classItem.archiveFolders ||= []
+    let localFolder = classItem.archiveFolders.find((folder) => folder.id === archiveFolder.id)
+    if (!localFolder) {
+      localFolder = {
+        id: archiveFolder.id,
+        name: archiveFolder.name,
+        createdAt: archiveFolder.created_at,
+        archives: [],
+      }
+      classItem.archiveFolders.unshift(localFolder)
+    }
+    localFolder.archives ||= []
+    localFolder.archives.unshift({
+      id: archivedScan.id,
+      taskId,
+      studentId: student.id,
+      studentEmail: student.email,
+      studentName: student.name,
+      title: cleanQuizTitle,
+      originalFilePath: archiveFilePath,
+      questions: archivedQuestions,
+      createdAt: archivedScan.created_at,
+    })
+    task.archiveFolderId = archiveFolder.id
     saveLocal()
     return task
   } catch (error) {
+    const cleanupErrors = []
+    let taskCleanupSucceeded = !taskCreated
     if (taskCreated) {
       try {
         const { error: cleanupError } = await supabase.from('tugas').delete().eq('id', taskId)
         if (cleanupError) throw cleanupError
+        taskCleanupSucceeded = true
       } catch (cleanupError) {
-        throw new Error(`${error.message} Data tugas parsial juga gagal dibersihkan: ${cleanupError.message}`)
+        cleanupErrors.push(`data tugas: ${cleanupError.message}`)
       }
+    }
+    if (!taskCleanupSucceeded) {
+      cleanupErrors.push('foto dan folder arsip terkait dipertahankan agar tidak merusak data yang masih tersimpan')
+    } else if (archiveFilePath && archiveImageUploaded) {
+      try {
+        const { error: cleanupError } = await supabase.storage
+          .from('scan-archives')
+          .remove([archiveFilePath])
+        if (cleanupError) cleanupErrors.push(`foto arsip: ${cleanupError.message}`)
+      } catch (cleanupError) {
+        cleanupErrors.push(`foto arsip: ${cleanupError.message}`)
+      }
+    }
+    if (taskCleanupSucceeded && archiveFolderCreated && archiveFolder) {
+      try {
+        const { error: cleanupError } = await supabase
+          .from('scan_archive_folders')
+          .delete()
+          .eq('id', archiveFolder.id)
+        if (cleanupError) cleanupErrors.push(`folder arsip: ${cleanupError.message}`)
+      } catch (cleanupError) {
+        cleanupErrors.push(`folder arsip: ${cleanupError.message}`)
+      }
+    }
+    if (cleanupErrors.length) {
+      throw new Error(`${error.message} Pembersihan data parsial gagal (${cleanupErrors.join('; ')}).`)
     }
     throw error
   }
+}
+
+async function getScannedArchiveImageUrl(path) {
+  if (!path) throw new Error('Lokasi foto arsip tidak tersedia.')
+
+  const { data, error } = await supabase.storage
+    .from('scan-archives')
+    .createSignedUrl(path, 600)
+  if (error) throw new Error(`Gagal membuka foto arsip: ${error.message}`)
+  return data.signedUrl
 }
 
 function updateTaskSettings(classId, taskId, settings) {
@@ -1165,6 +1360,7 @@ export {
   leaveClass,
   getClassesForStudent,
   getClassesForTeacher,
+  getScannedArchiveImageUrl,
   joinClassByCode,
   saveTaskSubmission,
   saveScannedSubmission,

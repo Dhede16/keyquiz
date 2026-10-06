@@ -4,7 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import { defaultStudents } from '@/data/students.js'
-import { addTaskToClass, classes } from '@/composables/useClasses.js'
+import {
+  addTaskToClass,
+  classes,
+  getScannedArchiveImageUrl,
+} from '@/composables/useClasses.js'
 import { canStudentViewTask, canTeacherViewTask } from '@/utils/scannedTaskAccess.js'
 import { getClassStatisticsStudents } from '@/utils/classStatistics.js'
 import classDetailBanner from '@/assets/images/BennedetailClass.png'
@@ -38,7 +42,20 @@ const tasks = computed(() =>
   ),
 )
 const statisticsTasks = computed(() => (isStudent.value ? tasks.value : allTasks.value))
-const activeClassTab = ref('quizzes')
+const activeClassTab = ref(route.query.tab === 'archives' ? 'archives' : 'quizzes')
+const selectedArchiveFolderId = ref(route.query.folderId || '')
+const selectedArchive = ref(null)
+const archiveImageUrl = ref('')
+const archiveImageError = ref('')
+const isLoadingArchiveImage = ref(false)
+const archiveFolders = computed(() =>
+  [...(currentClass.value?.archiveFolders || [])].sort(
+    (a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0),
+  ),
+)
+const selectedArchiveFolder = computed(
+  () => archiveFolders.value.find((folder) => folder.id === selectedArchiveFolderId.value) || null,
+)
 const selectedStatisticStudent = ref(null)
 const classStatisticsStudents = computed(() => {
   return getClassStatisticsStudents(currentClass.value?.members || [], statisticsTasks.value)
@@ -110,6 +127,28 @@ function formatTaskDeadline(task) {
 function selectClassTab(tab) {
   activeClassTab.value = tab
   if (tab === 'quizzes') selectedStatisticStudent.value = null
+  if (tab === 'archives') selectedArchiveFolderId.value = ''
+}
+
+async function openArchive(archive) {
+  selectedArchive.value = archive
+  archiveImageUrl.value = ''
+  archiveImageError.value = ''
+  isLoadingArchiveImage.value = true
+
+  try {
+    archiveImageUrl.value = await getScannedArchiveImageUrl(archive.originalFilePath)
+  } catch (error) {
+    archiveImageError.value = error.message || 'Foto arsip tidak dapat dibuka.'
+  } finally {
+    isLoadingArchiveImage.value = false
+  }
+}
+
+function closeArchive() {
+  selectedArchive.value = null
+  archiveImageUrl.value = ''
+  archiveImageError.value = ''
 }
 
 // Salin kode kelas
@@ -224,9 +263,10 @@ function getStudentSubmission(task) {
       </section>
 
       <div
-        class="grid grid-cols-2 gap-1 rounded-xl border border-white bg-white p-1 shadow-sm"
+        class="grid gap-1 rounded-xl border border-white bg-white p-1 shadow-sm"
+        :class="isStudent ? 'grid-cols-2' : 'grid-cols-3'"
         role="tablist"
-        aria-label="Kuis dan statistik kelas"
+        aria-label="Kuis, arsip scan, dan statistik kelas"
       >
         <button
           type="button"
@@ -241,6 +281,21 @@ function getStudentSubmission(task) {
           @click="selectClassTab('quizzes')"
         >
           Kuis
+        </button>
+        <button
+          v-if="!isStudent"
+          type="button"
+          role="tab"
+          :aria-selected="activeClassTab === 'archives'"
+          class="min-h-11 rounded-lg px-2 py-2 text-sm font-semibold transition sm:min-h-12 sm:px-3 sm:text-xl"
+          :class="
+            activeClassTab === 'archives'
+              ? 'bg-[linear-gradient(90deg,#2563EB_0%,#808080_100%)] text-white shadow-sm'
+              : 'text-[#808080] hover:bg-slate-50'
+          "
+          @click="selectClassTab('archives')"
+        >
+          Arsip Scan
         </button>
         <button
           type="button"
@@ -323,6 +378,104 @@ function getStudentSubmission(task) {
             Belum ada kuis di kelas ini.
           </div>
         </TransitionGroup>
+
+        <section
+          v-else-if="activeClassTab === 'archives' && !isStudent"
+          key="scan-archives"
+          class="space-y-4 rounded-2xl bg-white p-4 shadow-sm sm:space-y-5 sm:p-6"
+          aria-label="Arsip hasil scan"
+        >
+          <div v-if="!selectedArchiveFolder" class="space-y-4">
+            <div>
+              <h2 class="text-lg font-bold text-[#222222] sm:text-xl">Folder Arsip Scan</h2>
+              <p class="mt-1 text-sm text-[#666666]">
+                Foto lembar dan hasil koreksi yang sudah dikirim tersimpan di sini.
+              </p>
+            </div>
+            <div class="space-y-3 sm:space-y-4">
+              <button
+                v-for="(folder, index) in archiveFolders"
+                :key="folder.id"
+                type="button"
+                class="motion-surface group w-full rounded-2xl border border-[#f0f0f0] bg-white px-5 py-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#2864E8] hover:shadow-md sm:px-6 sm:py-5"
+                :style="{ transitionDelay: `${Math.min(index, 5) * 55}ms` }"
+                @click="selectedArchiveFolderId = folder.id"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <h3 class="truncate text-lg font-bold text-[#222222] transition group-hover:text-[#2864E8] sm:text-xl">
+                      {{ folder.name }}
+                    </h3>
+                    <p class="mt-1 text-sm text-[#888888]">
+                      {{ folder.archives?.length || 0 }} arsip
+                    </p>
+                  </div>
+                  <svg class="size-5 shrink-0 text-[#888888]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 18 6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
+              <p
+                v-if="archiveFolders.length === 0"
+                class="rounded-2xl bg-slate-50 p-6 text-center text-sm text-[#888888] sm:p-8"
+              >
+                Belum ada arsip scan di kelas ini.
+              </p>
+            </div>
+          </div>
+
+          <div v-else class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <button
+                  type="button"
+                  class="mb-2 flex items-center gap-1 text-sm font-semibold text-[#2864E8] hover:text-[#1f50be]"
+                  @click="selectedArchiveFolderId = ''"
+                >
+                  <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 18-6-6 6-6" />
+                  </svg>
+                  Semua folder
+                </button>
+                <h2 class="text-lg font-bold text-[#222222] sm:text-xl">
+                  {{ selectedArchiveFolder.name }}
+                </h2>
+              </div>
+              <p class="text-sm text-[#888888]">
+                {{ selectedArchiveFolder.archives?.length || 0 }} arsip
+              </p>
+            </div>
+
+            <div class="space-y-3 sm:space-y-4">
+              <button
+                v-for="archive in selectedArchiveFolder.archives || []"
+                :key="archive.id"
+                type="button"
+                class="group w-full rounded-2xl border border-[#f0f0f0] bg-white px-5 py-4 text-left shadow-sm transition hover:border-[#2864E8] hover:shadow-md sm:px-6 sm:py-5"
+                @click="openArchive(archive)"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <h3 class="text-base font-bold text-[#222222] transition group-hover:text-[#2864E8] sm:text-lg">
+                    {{ archive.title }}
+                  </h3>
+                  <span class="text-xs font-medium text-[#888888]">
+                    {{ new Date(archive.createdAt).toLocaleDateString('id-ID') }}
+                  </span>
+                </div>
+                <p class="mt-1 text-sm text-[#666666]">
+                  {{ archive.studentName || archive.studentEmail }}
+                  &bull; {{ archive.questions?.length || 0 }} soal
+                </p>
+              </button>
+              <p
+                v-if="selectedArchiveFolder.archives?.length === 0"
+                class="rounded-2xl bg-slate-50 p-6 text-center text-sm text-[#888888] sm:p-8"
+              >
+                Folder ini belum memiliki arsip.
+              </p>
+            </div>
+          </div>
+        </section>
 
         <section
           v-else-if="!isStudent && !selectedStatisticStudent"
@@ -706,6 +859,103 @@ function getStudentSubmission(task) {
         </div>
       </div>
     </Transition>
+
+    <Teleport to="body">
+      <div
+        v-if="selectedArchive"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-6"
+        @click.self="closeArchive"
+      >
+        <section
+          class="flex max-h-[calc(100dvh-24px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-48px)]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="scan-archive-title"
+        >
+          <header class="flex shrink-0 items-center justify-between gap-4 bg-[linear-gradient(105deg,#2864E8_0%,#173C87_100%)] px-5 py-4 text-white sm:px-7">
+            <div class="min-w-0">
+              <h2 id="scan-archive-title" class="truncate text-lg font-bold sm:text-2xl">
+                {{ selectedArchive.title }}
+              </h2>
+              <p class="mt-1 truncate text-xs text-white/80 sm:text-sm">
+                {{ selectedArchive.studentName || selectedArchive.studentEmail }} &bull;
+                {{ new Date(selectedArchive.createdAt).toLocaleString('id-ID') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="flex size-9 shrink-0 items-center justify-center rounded-full text-white/90 transition hover:bg-white/10 hover:text-white"
+              aria-label="Tutup arsip scan"
+              @click="closeArchive"
+            >
+              <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </header>
+          <div class="min-h-0 space-y-5 overflow-y-auto p-4 sm:p-7">
+            <section class="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+              <h3 class="mb-3 text-sm font-bold text-[#333333] sm:text-base">Foto lembar asli</h3>
+              <p v-if="isLoadingArchiveImage" class="py-8 text-center text-sm text-[#666666]">
+                Membuka foto arsip...
+              </p>
+              <p v-else-if="archiveImageError" role="alert" class="py-4 text-sm text-red-600">
+                {{ archiveImageError }}
+              </p>
+              <img
+                v-else-if="archiveImageUrl"
+                :src="archiveImageUrl"
+                alt="Foto asli lembar scan"
+                class="mx-auto max-h-[55vh] w-auto max-w-full rounded-lg object-contain"
+              />
+            </section>
+
+            <section>
+              <h3 class="mb-3 text-sm font-bold text-[#333333] sm:text-base">Hasil koreksi</h3>
+              <div class="space-y-3">
+                <article
+                  v-for="(question, index) in selectedArchive.questions"
+                  :key="`${selectedArchive.id}-${index}`"
+                  class="rounded-xl border border-slate-200 p-4"
+                >
+                  <div class="flex flex-wrap items-start justify-between gap-2">
+                    <h4 class="min-w-0 flex-1 text-sm font-semibold text-[#222222]">
+                      {{ index + 1 }}. {{ question.title }}
+                    </h4>
+                    <span class="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#2864E8]">
+                      {{ question.score }} / {{ question.points }}
+                    </span>
+                  </div>
+                  <div class="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <p class="text-[#666666]">
+                      Jawaban terbaca:
+                      <strong class="text-[#222222]">
+                        {{ question.options?.find((option) => option.value === question.selectedOption)?.label || 'Kosong' }}
+                      </strong>
+                    </p>
+                    <p class="text-[#666666]">
+                      Kunci jawaban:
+                      <strong class="text-[#222222]">
+                        {{ question.options?.find((option) => option.value === question.answerKey)?.label || question.answerKey }}
+                      </strong>
+                    </p>
+                  </div>
+                  <p class="mt-2 text-xs text-[#888888]">
+                    Nilai AI: {{ question.aiScore }} / {{ question.points }}
+                  </p>
+                </article>
+              </div>
+              <p class="mt-3 text-right text-sm font-bold text-[#2864E8]">
+                Total:
+                {{ selectedArchive.questions?.reduce((total, question) => total + (Number(question.score) || 0), 0) || 0 }}
+                / {{ selectedArchive.questions?.reduce((total, question) => total + (Number(question.points) || 0), 0) || 0 }}
+                poin
+              </p>
+            </section>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </DashboardLayout>
 </template>
 

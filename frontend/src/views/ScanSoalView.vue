@@ -26,6 +26,8 @@ const showStudentFilter = ref(false)
 const showOnlySelectedStudents = ref(false)
 const selectedClassId = ref('')
 const selectedStudentIds = ref([])
+const selectedArchiveFolderId = ref('')
+const newArchiveFolderName = ref('')
 const scannedQuizTitle = ref('')
 
 const teacherClasses = computed(() =>
@@ -48,6 +50,7 @@ const filteredClasses = computed(() => {
 const selectedClass = computed(
   () => classes.value.find((classItem) => String(classItem.id) === selectedClassId.value) || null,
 )
+const selectedClassArchiveFolders = computed(() => selectedClass.value?.archiveFolders || [])
 
 const availableStudents = computed(() => {
   const members = selectedClass.value?.members || []
@@ -88,6 +91,7 @@ const scanError = ref('')
 const submissionError = ref('')
 const isSubmitting = ref(false)
 const savedTaskId = ref('')
+const savedArchiveFolderId = ref('')
 let scanInterval = null
 
 // Modal simpan
@@ -105,6 +109,8 @@ function openClassSelection() {
   showStudentFilter.value = false
   selectedClassId.value = ''
   selectedStudentIds.value = []
+  selectedArchiveFolderId.value = ''
+  newArchiveFolderName.value = ''
   submissionError.value = ''
   isSelectionModalOpen.value = true
 }
@@ -113,8 +119,25 @@ function closeSelectionModal() {
   isSelectionModalOpen.value = false
 }
 
-function continueToStudentSelection() {
+function selectClass(classItem) {
+  selectedClassId.value = String(classItem.id)
+  selectedArchiveFolderId.value = ''
+  newArchiveFolderName.value = ''
+}
+
+function continueToFolderSelection() {
   if (!selectedClassId.value) return
+  selectedArchiveFolderId.value = selectedClassArchiveFolders.value.length ? '' : 'new'
+  selectionStep.value = 'folder'
+}
+
+function continueToStudentSelection() {
+  if (
+    selectedArchiveFolderId.value !== 'new' &&
+    !selectedClassArchiveFolders.value.some((folder) => folder.id === selectedArchiveFolderId.value)
+  ) return
+  if (selectedArchiveFolderId.value === 'new' && !newArchiveFolderName.value.trim()) return
+
   selectionStep.value = 'student'
   studentSearch.value = ''
   showOnlySelectedStudents.value = false
@@ -310,7 +333,12 @@ const canSubmitScan = computed(
 )
 
 async function submitScannedResult() {
-  if (isSubmitting.value || !selectedClassId.value || !selectedStudentIds.value.length) return
+  if (
+    isSubmitting.value ||
+    !selectedClassId.value ||
+    !selectedStudentIds.value.length ||
+    !selectedFiles.value[0]
+  ) return
   isSubmitting.value = true
   submissionError.value = ''
 
@@ -329,8 +357,15 @@ async function submitScannedResult() {
         isCertain: question.isCertain,
       })),
       scannedQuizTitle.value,
+      {
+        originalFile: selectedFiles.value[0],
+        folderId: selectedArchiveFolderId.value === 'new' ? null : selectedArchiveFolderId.value,
+        folderName: selectedArchiveFolderId.value === 'new' ? newArchiveFolderName.value : '',
+      },
     )
     savedTaskId.value = task.id
+    savedArchiveFolderId.value = task.archiveFolderId
+    selectedArchiveFolderId.value = task.archiveFolderId
     isSelectionModalOpen.value = false
     isSavedModalOpen.value = true
   } catch (err) {
@@ -347,6 +382,9 @@ function resetScan() {
   scanError.value = ''
   scannedQuizTitle.value = ''
   scannedQuestions.value = []
+  savedArchiveFolderId.value = ''
+  selectedArchiveFolderId.value = ''
+  newArchiveFolderName.value = ''
   clearAllFiles()
 }
 
@@ -716,11 +754,11 @@ const buttonText = computed(() => {
               class="relative flex min-h-[76px] shrink-0 items-center justify-center bg-[linear-gradient(105deg,#2864E8_0%,#173C87_100%)] px-14 py-4 text-center text-white sm:min-h-[100px]"
             >
               <button
-                v-if="selectionStep === 'student'"
+                v-if="selectionStep !== 'class'"
                 type="button"
                 class="absolute left-4 flex size-9 items-center justify-center rounded-full text-white/90 transition hover:bg-white/10 hover:text-white sm:left-6"
-                aria-label="Kembali memilih kelas"
-                @click="selectionStep = 'class'"
+                :aria-label="selectionStep === 'student' ? 'Kembali memilih folder' : 'Kembali memilih kelas'"
+                @click="selectionStep = selectionStep === 'student' ? 'folder' : 'class'"
               >
                 <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -732,7 +770,13 @@ const buttonText = computed(() => {
                 </svg>
               </button>
               <h2 :id="`picker-title-${selectionStep}`" class="text-xl font-bold sm:text-3xl">
-                {{ selectionStep === 'class' ? 'Pilih Kelas' : 'Pilih Mahasiswa' }}
+                {{
+                  selectionStep === 'class'
+                    ? 'Pilih Kelas'
+                    : selectionStep === 'folder'
+                      ? 'Pilih Folder Arsip'
+                      : 'Pilih Mahasiswa'
+                }}
               </h2>
               <button
                 type="button"
@@ -755,7 +799,7 @@ const buttonText = computed(() => {
               <p v-if="selectionStep === 'student'" class="mb-2 text-sm text-[#666666]">
                 Satu lembar scan hanya dapat dikaitkan dengan satu mahasiswa.
               </p>
-              <div class="relative flex shrink-0 items-center gap-3">
+              <div v-if="selectionStep !== 'folder'" class="relative flex shrink-0 items-center gap-3">
                 <label class="relative min-w-0 flex-1">
                   <span class="sr-only"
                     >Cari {{ selectionStep === 'class' ? 'kelas' : 'mahasiswa' }}</span
@@ -861,7 +905,7 @@ const buttonText = computed(() => {
                         ? 'border-[#2864E8] ring-2 ring-[#2864E8]/20'
                         : 'border-[#888888] hover:border-[#2864E8]'
                     "
-                    @click="selectedClassId = String(classItem.id)"
+                    @click="selectClass(classItem)"
                   >
                     <h3
                       class="truncate border-b border-[#aaaaaa] pb-2 text-lg text-[#808080] sm:text-2xl"
@@ -877,6 +921,67 @@ const buttonText = computed(() => {
                     class="py-8 text-center text-sm text-[#888888]"
                   >
                     Kelas tidak ditemukan.
+                  </p>
+                </template>
+
+                <template v-else-if="selectionStep === 'folder'">
+                  <button
+                    v-for="folder in selectedClassArchiveFolders"
+                    :key="folder.id"
+                    type="button"
+                    class="w-full rounded-2xl border px-5 py-4 text-left shadow-[0_2px_4px_rgba(0,0,0,0.2)] transition sm:px-7 sm:py-5"
+                    :class="
+                      selectedArchiveFolderId === folder.id
+                        ? 'border-[#2864E8] ring-2 ring-[#2864E8]/20'
+                        : 'border-[#888888] hover:border-[#2864E8]'
+                    "
+                    @click="selectedArchiveFolderId = folder.id"
+                  >
+                    <h3 class="truncate border-b border-[#aaaaaa] pb-2 text-lg text-[#808080] sm:text-2xl">
+                      {{ folder.name }}
+                    </h3>
+                    <p class="mt-2 text-sm text-[#808080] sm:text-base">
+                      {{ folder.archives?.length || 0 }} arsip scan
+                    </p>
+                  </button>
+
+                  <div
+                    class="w-full rounded-2xl border px-5 py-4 shadow-[0_2px_4px_rgba(0,0,0,0.2)] transition sm:px-7 sm:py-5"
+                    :class="
+                      selectedArchiveFolderId === 'new'
+                        ? 'border-[#2864E8] ring-2 ring-[#2864E8]/20'
+                        : 'border-[#888888] hover:border-[#2864E8]'
+                    "
+                  >
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2 text-left text-lg font-semibold text-[#2864E8] sm:text-2xl"
+                      :aria-pressed="selectedArchiveFolderId === 'new'"
+                      @click="selectedArchiveFolderId = 'new'"
+                    >
+                      <span aria-hidden="true">+</span>
+                      Buat folder baru
+                    </button>
+                    <label
+                      v-if="selectedArchiveFolderId === 'new'"
+                      class="mt-3 block space-y-1 text-sm font-medium text-[#444444]"
+                    >
+                      Nama folder
+                      <input
+                        v-model="newArchiveFolderName"
+                        type="text"
+                        maxlength="100"
+                        required
+                        class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-[#222222] focus:border-[#2864E8] focus:outline-none focus:ring-2 focus:ring-[#2864E8]/20"
+                        placeholder="Contoh: UTS Semester 1"
+                      />
+                    </label>
+                  </div>
+                  <p
+                    v-if="selectedClassArchiveFolders.length === 0"
+                    class="py-2 text-center text-sm text-[#888888]"
+                  >
+                    Belum ada folder. Buat folder untuk menyimpan arsip ini.
                   </p>
                 </template>
 
@@ -942,6 +1047,19 @@ const buttonText = computed(() => {
                   type="button"
                   :disabled="!selectedClassId"
                   class="min-h-12 w-full rounded-xl bg-[#2864E8] px-8 text-base font-semibold text-white transition hover:bg-[#1f50be] disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-[58px] sm:w-auto sm:min-w-[200px] sm:text-lg"
+                  @click="continueToFolderSelection"
+                >
+                  Selanjutnya
+                </button>
+                <button
+                  v-else-if="selectionStep === 'folder'"
+                  type="button"
+                  :disabled="
+                    selectedArchiveFolderId !== 'new'
+                      ? !selectedArchiveFolderId
+                      : !newArchiveFolderName.trim()
+                  "
+                  class="min-h-12 w-full rounded-xl bg-[#2864E8] px-8 text-base font-semibold text-white transition hover:bg-[#1f50be] disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-[58px] sm:w-auto sm:min-w-[200px] sm:text-lg"
                   @click="continueToStudentSelection"
                 >
                   Selanjutnya
@@ -994,6 +1112,8 @@ const buttonText = computed(() => {
           <strong class="text-[#2864E8]">{{ selectedStudent?.name || selectedStudent?.email }}</strong>
           telah dikirim ke kelas <strong>{{ selectedClass?.title }}</strong>. Nilai:
           <strong class="text-[#2864E8]">{{ totalScore }} / {{ maxScore }}</strong>.
+          Foto dan koreksi tersimpan di folder
+          <strong>{{ selectedClassArchiveFolders.find((folder) => folder.id === savedArchiveFolderId)?.name || newArchiveFolderName }}</strong>.
         </p>
 
         <!-- Tombol Aksi Modal -->
@@ -1004,6 +1124,18 @@ const buttonText = computed(() => {
             @click="router.push(`/kelas/${selectedClassId}/tugas/${savedTaskId}`)"
           >
             Lihat Hasil di Kelas
+          </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-[#555555] transition hover:bg-slate-50 sm:text-base"
+            @click="
+              router.push({
+                path: `/kelas/${selectedClassId}`,
+                query: { tab: 'archives', folderId: savedArchiveFolderId },
+              })
+            "
+          >
+            Lihat Arsip Kelas
           </button>
           <button
             type="button"
