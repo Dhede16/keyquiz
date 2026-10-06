@@ -267,13 +267,18 @@ async function syncClassesFromSupabase(userEmail = null) {
             submittedAt: jm.submitted_at,
             answers: (jm.detail_jawaban || []).map((dj) => {
               const question = formattedQuestions.find((item) => item.id === dj.soal_id)
-              const similarity = dj.similarity_score ?? dj.nilai_ai
+              const similarity = dj.similarity_score
+              const nilaiAi = dj.nilai_ai ?? similarity
               const aiScore =
-                similarity != null && question && jm.is_scanned
-                  ? Number(similarity)
-                  : similarity != null && question
-                    ? Math.round((Number(similarity) / 100) * (Number(question.points) || 10))
+                nilaiAi != null && question && jm.is_scanned
+                  ? Number(nilaiAi)
+                  : nilaiAi != null && question
+                    ? Math.round((Number(nilaiAi) / 100) * (Number(question.points) || 10))
                   : null
+              const rubricEvaluation = dj.rubric_evaluation
+              const rubricResults = Array.isArray(rubricEvaluation)
+                ? rubricEvaluation
+                : rubricEvaluation?.rubric_results || []
 
               return {
                 id: dj.id,
@@ -285,11 +290,13 @@ async function syncClassesFromSupabase(userEmail = null) {
                 rubricEvaluation: dj.rubric_evaluation,
                 aiScore,
                 aiEvaluation:
-                  similarity == null || jm.is_scanned
+                  nilaiAi == null || jm.is_scanned
                     ? null
                     : {
-                        similarity: Number(similarity),
-                        nilai_ai: Number(similarity),
+                        similarity: similarity == null ? null : Number(similarity),
+                        nilai_ai: Number(nilaiAi),
+                        rubric_results: rubricResults,
+                        alasan_ai: rubricEvaluation?.alasan_ai || '',
                       },
               }
             }),
@@ -741,6 +748,12 @@ async function saveTaskSubmission(classId, taskId, submission) {
             }
             if (typeof ans.aiEvaluation.nilai_ai === 'number') {
               detailRow.nilai_ai = ans.aiEvaluation.nilai_ai
+            }
+            if (Array.isArray(ans.aiEvaluation.rubric_results)) {
+              detailRow.rubric_evaluation = {
+                rubric_results: ans.aiEvaluation.rubric_results,
+                alasan_ai: ans.aiEvaluation.alasan_ai || '',
+              }
             }
           }
 

@@ -41,7 +41,7 @@ def endpoint_simpan_kunci(data: KunciEssayIn):
         raise HTTPException(status_code=500, detail=f"Gagal menyimpan kunci jawaban: {str(e)}")
 
 
-@router.post("/nilai", summary="Penilaian Esai berdasarkan Kemiripan Embedding")
+@router.post("/nilai", summary="Penilaian Esai berdasarkan Rubrik dan AI")
 def endpoint_nilai_esai(data: JawabanEssayIn):
     try:
         return nilai_esai(data.id_detail, data.id_soal, data.jawaban_teks)
@@ -51,7 +51,7 @@ def endpoint_nilai_esai(data: JawabanEssayIn):
         raise HTTPException(status_code=500, detail=f"Kesalahan penilaian AI: {str(e)}")
 
 
-@router.post("/nilai-batch", summary="Penilaian Esai Batch berdasarkan Kemiripan Embedding")
+@router.post("/nilai-batch", summary="Penilaian Esai Batch berdasarkan Rubrik dan AI")
 def endpoint_nilai_esai_batch(data: BatchNilaiEssayIn):
     results = []
     for item in data.items:

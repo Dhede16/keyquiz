@@ -330,7 +330,7 @@ function isAnswerCorrect(question) {
                           d="M13 10V3L4 14h7v7l9-11h-7z"
                         />
                       </svg>
-                      <span>Penilaian AI (Vector Database / Embedding)</span>
+                      <span>Penilaian AI berbasis rubrik</span>
                     </div>
                     <div class="flex items-center gap-1.5">
                       <span
@@ -370,12 +370,21 @@ function isAnswerCorrect(question) {
                     >
                       <span
                         :class="
-                          r.fulfilled ? 'font-bold text-emerald-600' : 'font-bold text-rose-500'
+                          r.score === 1
+                            ? 'font-bold text-emerald-600'
+                            : r.score > 0
+                              ? 'font-bold text-amber-600'
+                              : 'font-bold text-rose-500'
                         "
                       >
-                        {{ r.fulfilled ? '✓' : '✗' }}
+                        {{ Math.round(r.score * 100) }}%
                       </span>
-                      <span class="text-blue-950">{{ r.criterion }}: {{ r.reason }}</span>
+                      <span class="text-blue-950">
+                        <strong>{{ r.criterion }}:</strong> {{ r.reason }}
+                        <span v-if="r.evidence" class="block text-blue-800/75">
+                          Bukti: “{{ r.evidence }}”
+                        </span>
+                      </span>
                     </div>
                   </div>
                 </div>
