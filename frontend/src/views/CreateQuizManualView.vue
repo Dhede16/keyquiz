@@ -1,11 +1,11 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import DeadlineModal from '@/components/ui/DeadlineModal.vue'
 import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import aiBannerImg from '@/assets/images/bennerbuatsoal_ai.png'
-import { addTaskToClass, classes } from '@/composables/useClasses.js'
+import { addTaskToClass, classes, updateTaskInClass } from '@/composables/useClasses.js'
 import {
   getQuizPointsTotal,
   hasQuizPointsTotalOf100,
@@ -17,9 +17,14 @@ const route = useRoute()
 const router = useRouter()
 
 const classId = computed(() => route.params.id || 1)
+const editTaskId = computed(() => route.query.taskId || '')
+const isEditing = computed(() => Boolean(editTaskId.value))
 const currentClass = computed(() => {
   return classes.value.find((c) => String(c.id) === String(classId.value)) || classes.value[0]
 })
+const taskToEdit = computed(() =>
+  currentClass.value?.tasks?.find((task) => String(task.id) === String(editTaskId.value)),
+)
 
 // Header Formulir
 const formTitle = ref('')
@@ -67,7 +72,32 @@ const questions = ref([
 
 // Jika berasal dari AI, pre-fill judul & soal
 const fromAi = ref(false)
+const isEditFormLoaded = ref(false)
+watch(
+  taskToEdit,
+  (task) => {
+    if (!isEditing.value || !task || isEditFormLoaded.value) return
+    formTitle.value = task.title || ''
+    formDesc.value = task.description || ''
+    showScore.value = task.showScore !== false
+    showCorrectAnswers.value = task.showCorrectAnswers === true
+    questions.value = (task.questions || []).map((question) => ({
+      id: question.id,
+      title: question.title || '',
+      type: question.type === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
+      options: Array.isArray(question.options) ? [...question.options] : [],
+      answerKey: question.answerKey || '',
+      rubric: question.rubric || [],
+      points: Number(question.points) || 0,
+      showAnswerKeyModal: false,
+    }))
+    isEditFormLoaded.value = true
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
+  if (isEditing.value) return
   const state = history.state
   if (state?.aiTitle || state?.aiQuestions) {
     fromAi.value = true
@@ -166,17 +196,20 @@ function saveAnswerKey() {
 // Simpan Formulir ke Daftar Tugas Kelas
 const isSavedModalOpen = ref(false)
 const isDeadlineModalOpen = ref(false)
+const isSaving = ref(false)
+const saveError = ref('')
 
 function handleSaveForm() {
   if (!hasValidPointTotal.value) return
+  saveError.value = ''
   isDeadlineModalOpen.value = true
 }
 
-function saveForm(deadline) {
+async function saveForm(deadline) {
   if (!hasValidPointTotal.value) return
 
   const deadlineDate = new Date(`${deadline.date}T12:00:00`)
-  addTaskToClass(classId.value, {
+  const taskData = {
     title: formTitle.value.trim() || 'Tugas tanpa judul',
     description: formDesc.value.trim(),
     date: deadlineDate.toLocaleDateString('id-ID', {
@@ -189,25 +222,77 @@ function saveForm(deadline) {
     deadlineTime: deadline.time,
     deadlineTimezone: 'WIB',
     dueAt: `${deadline.date}T${deadline.time}:00+07:00`,
-    questions: questions.value.map(({ id, title, type, options, answerKey, points }) => ({
+    questions: questions.value.map(({ id, title, type, options, answerKey, rubric, points }) => ({
       id,
       title,
       type,
       options: [...options],
       answerKey,
+      rubric: rubric || [],
       points: Number(points) || 0,
     })),
     showScore: showScore.value,
     showCorrectAnswers: showCorrectAnswers.value,
-  })
-  isDeadlineModalOpen.value = false
-  isSavedModalOpen.value = true
+  }
+
+  isSaving.value = true
+  saveError.value = ''
+  try {
+    if (isEditing.value) {
+      if (!isEditFormLoaded.value || !taskToEdit.value) {
+        throw new Error('Tugas yang akan diedit tidak ditemukan.')
+      }
+      await updateTaskInClass(classId.value, editTaskId.value, taskData)
+    } else {
+      await addTaskToClass(classId.value, taskData)
+    }
+    isDeadlineModalOpen.value = false
+    isSavedModalOpen.value = true
+  } catch (error) {
+    isDeadlineModalOpen.value = false
+    saveError.value = error.message || 'Gagal menyimpan perubahan tugas.'
+  } finally {
+    isSaving.value = false
+  }
 }
 
 function handleCloseSaved() {
   isSavedModalOpen.value = false
-  router.push(`/kelas/${classId.value}`)
+  router.push(
+    isEditing.value
+      ? `/kelas/${classId.value}/tugas/${editTaskId.value}`
+      : `/kelas/${classId.value}`,
+  )
 }
+
+function getJakartaDeadlineParts(dueAt) {
+  if (!dueAt) return { date: '', time: '23:59' }
+  const dueDate = new Date(dueAt)
+  if (Number.isNaN(dueDate.getTime())) return { date: '', time: '23:59' }
+
+  const dateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(dueDate)
+  const timeParts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(dueDate)
+  const partValue = (parts, type) => parts.find((part) => part.type === type)?.value || ''
+
+  return {
+    date: `${partValue(dateParts, 'year')}-${partValue(dateParts, 'month')}-${partValue(dateParts, 'day')}`,
+    time: `${partValue(timeParts, 'hour')}:${partValue(timeParts, 'minute')}`,
+  }
+}
+
+const initialDeadline = computed(() => getJakartaDeadlineParts(taskToEdit.value?.dueAt))
+const initialDeadlineDate = computed(() => initialDeadline.value.date)
+const initialDeadlineTime = computed(() => initialDeadline.value.time)
 </script>
 
 <template>
@@ -233,10 +318,10 @@ function handleCloseSaved() {
             Kembali ke Kelas
           </button>
           <span
-            v-if="fromAi"
+            v-if="fromAi || isEditing"
             class="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm"
           >
-            ✨ Dari AI
+            {{ isEditing ? 'Edit Tugas' : '✨ Dari AI' }}
           </span>
         </div>
 
@@ -248,11 +333,18 @@ function handleCloseSaved() {
             :disabled="!hasValidPointTotal"
             @click="handleSaveForm"
           >
-            Simpan Formulir
+            {{ isSaving ? 'Menyimpan...' : isEditing ? 'Simpan Perubahan' : 'Simpan Formulir' }}
           </button>
         </div>
       </div>
 
+      <p
+        v-if="saveError"
+        class="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        role="alert"
+      >
+        {{ saveError }}
+      </p>
 
       <!-- Area Konten yang Scrollable Mandiri di dalam border biru -->
       <div class="relative flex-1 min-h-0 overflow-y-auto pr-1 space-y-4 pb-20 sm:space-y-5">
@@ -610,6 +702,8 @@ function handleCloseSaved() {
 
     <DeadlineModal
       :open="isDeadlineModalOpen"
+      :initial-date="isEditing ? initialDeadlineDate : ''"
+      :initial-time="isEditing ? initialDeadlineTime : '23:59'"
       @close="isDeadlineModalOpen = false"
       @save="saveForm"
     />
@@ -637,12 +731,15 @@ function handleCloseSaved() {
             </svg>
           </div>
 
-          <h3 class="mt-5 text-xl font-bold text-[#222222] sm:text-2xl">Formulir Soal Disimpan!</h3>
+          <h3 class="mt-5 text-xl font-bold text-[#222222] sm:text-2xl">
+            {{ isEditing ? 'Perubahan Tugas Disimpan!' : 'Formulir Soal Disimpan!' }}
+          </h3>
 
           <p class="mt-2 text-sm text-[#666666] sm:text-base leading-relaxed">
-            Formulir <strong>{{ formTitle }}</strong> dengan {{ questions.length }} butir pertanyaan
-            telah berhasil ditambahkan ke kelas <strong>{{ currentClass.title }}</strong
-            >.
+            {{ isEditing ? 'Perubahan pada' : 'Formulir' }}
+            <strong>{{ formTitle }}</strong> dengan {{ questions.length }} butir pertanyaan
+            {{ isEditing ? 'telah berhasil diperbarui.' : 'telah berhasil ditambahkan ke kelas' }}
+            <strong v-if="!isEditing">{{ currentClass.title }}</strong>.
           </p>
 
           <div class="mt-7 flex justify-center">

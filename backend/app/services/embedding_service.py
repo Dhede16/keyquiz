@@ -39,6 +39,7 @@ def buat_embedding(teks: str) -> list[float]:
 def simpan_kunci(id_kunci: str, id_soal: str, soal: str, kunci_teks: str, rubrik: list[str]) -> None:
     """Simpan kunci jawaban beserta soal dan rubriknya ke ChromaDB."""
     koleksi_kunci, _ = get_chroma()
+    existing_ids = koleksi_kunci.get(where={"id_soal": id_soal})["ids"]
     koleksi_kunci.upsert(
         ids=[id_kunci],
         embeddings=[buat_embedding(kunci_teks)],
@@ -49,6 +50,9 @@ def simpan_kunci(id_kunci: str, id_soal: str, soal: str, kunci_teks: str, rubrik
             "rubrik": json.dumps(rubrik if isinstance(rubrik, list) else []),
         }],
     )
+    stale_ids = [existing_id for existing_id in existing_ids if existing_id != id_kunci]
+    if stale_ids:
+        koleksi_kunci.delete(ids=stale_ids)
 
 
 def cari_kunci(vektor_jawaban: list[float], id_soal: str) -> dict:

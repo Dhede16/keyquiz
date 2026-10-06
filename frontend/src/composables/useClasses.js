@@ -499,6 +499,153 @@ function updateTask(classId, taskId, update) {
   return task
 }
 
+async function updateTaskInClass(classId, taskId, update) {
+  const classItem = classes.value.find((item) => String(item.id) === String(classId))
+  const task = classItem?.tasks?.find((item) => String(item.id) === String(taskId))
+  if (!task) throw new Error('Tugas yang akan diedit tidak ditemukan.')
+
+  const questions = (update.questions || []).map((question) => ({ ...question }))
+  if (questions.length === 0 || !hasQuizPointsTotalOf100(questions)) {
+    throw new Error('Total bobot seluruh soal harus tepat 100 poin.')
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError) throw new Error(`Gagal memeriksa sesi dosen: ${authError.message}`)
+  if (user) {
+    const { data: dbQuestions, error: questionsError } = await supabase
+      .from('soal')
+      .select('id')
+      .eq('tugas_id', taskId)
+    if (questionsError) throw new Error(`Gagal memuat soal tersimpan: ${questionsError.message}`)
+
+    const existingIds = new Set((dbQuestions || []).map((question) => String(question.id)))
+    const retainedIds = new Set(
+      questions.filter((question) => existingIds.has(String(question.id))).map((question) => String(question.id)),
+    )
+    const removedIds = [...existingIds].filter((id) => !retainedIds.has(id))
+
+    if (removedIds.length > 0) {
+      const { data: answeredQuestions, error: answersError } = await supabase
+        .from('detail_jawaban')
+        .select('soal_id')
+        .in('soal_id', removedIds)
+        .limit(1)
+      if (answersError) throw new Error(`Gagal memeriksa jawaban mahasiswa: ${answersError.message}`)
+      if (answeredQuestions?.length) {
+        throw new Error('Soal yang sudah dijawab mahasiswa tidak dapat dihapus agar jawaban mereka tetap tersimpan.')
+      }
+    }
+
+    const { data: savedTask, error: taskError } = await supabase
+      .from('tugas')
+      .update({
+        title: update.title,
+        description: update.description || null,
+        deadline: update.dueAt || null,
+        show_score: update.showScore ?? true,
+        show_correct_answers: update.showCorrectAnswers ?? false,
+      })
+      .eq('id', taskId)
+      .select('id')
+      .single()
+    if (taskError) throw new Error(`Gagal memperbarui tugas: ${taskError.message}`)
+    if (!savedTask) throw new Error('Tugas tidak ditemukan atau tidak dapat diedit.')
+
+    for (let index = 0; index < questions.length; index++) {
+      const question = questions[index]
+      const questionId = existingIds.has(String(question.id)) ? String(question.id) : crypto.randomUUID()
+      question.id = questionId
+      const questionData = {
+        type: question.type === 'multiple_choice' ? 'multiple_choice' : 'short_answer',
+        question_text: question.title,
+        points: Number(question.points),
+        order_index: index + 1,
+      }
+
+      const questionResult = existingIds.has(questionId)
+        ? await supabase.from('soal').update(questionData).eq('id', questionId).eq('tugas_id', taskId)
+        : await supabase.from('soal').insert({ id: questionId, tugas_id: taskId, ...questionData })
+      if (questionResult.error) {
+        throw new Error(`Gagal memperbarui soal ${index + 1}: ${questionResult.error.message}`)
+      }
+
+      const { data: currentOptions, error: optionsQueryError } = await supabase
+        .from('opsi_jawaban')
+        .select('id')
+        .eq('soal_id', questionId)
+        .order('order_index')
+      if (optionsQueryError) throw new Error(`Gagal memuat opsi soal ${index + 1}: ${optionsQueryError.message}`)
+
+      const options = question.type === 'multiple_choice' ? question.options || [] : []
+      const letters = ['A', 'B', 'C', 'D', 'E']
+      for (let optionIndex = 0; optionIndex < Math.max(currentOptions.length, options.length); optionIndex++) {
+        const existingOption = currentOptions[optionIndex]
+        const optionText = options[optionIndex]
+        if (existingOption && optionText !== undefined) {
+          const { error } = await supabase
+            .from('opsi_jawaban')
+            .update({
+              option_letter: letters[optionIndex] || String(optionIndex + 1),
+              option_text: optionText,
+              is_correct: Boolean(question.answerKey) &&
+                optionText.trim().toLowerCase() === question.answerKey.trim().toLowerCase(),
+              order_index: optionIndex + 1,
+            })
+            .eq('id', existingOption.id)
+          if (error) throw new Error(`Gagal memperbarui opsi soal ${index + 1}: ${error.message}`)
+        } else if (optionText !== undefined) {
+          const { error } = await supabase.from('opsi_jawaban').insert({
+            soal_id: questionId,
+            option_letter: letters[optionIndex] || String(optionIndex + 1),
+            option_text: optionText,
+            is_correct: Boolean(question.answerKey) &&
+              optionText.trim().toLowerCase() === question.answerKey.trim().toLowerCase(),
+            order_index: optionIndex + 1,
+          })
+          if (error) throw new Error(`Gagal menambahkan opsi soal ${index + 1}: ${error.message}`)
+        } else if (existingOption) {
+          const { error } = await supabase.from('opsi_jawaban').delete().eq('id', existingOption.id)
+          if (error) throw new Error(`Gagal menghapus opsi soal ${index + 1}: ${error.message}`)
+        }
+      }
+
+      if (question.type !== 'multiple_choice') {
+        const { error } = await supabase
+          .from('kunci_jawaban_essay')
+          .upsert(
+            {
+              soal_id: questionId,
+              answer_key: question.answerKey || '',
+              rubric: question.rubric || [],
+            },
+            { onConflict: 'soal_id' },
+          )
+        if (error) throw new Error(`Gagal memperbarui kunci esai soal ${index + 1}: ${error.message}`)
+
+        saveEssayKey({
+          idKunci: `kunci-${questionId}`,
+          idSoal: questionId,
+          soal: question.title || '',
+          kunciTeks: question.answerKey || '',
+          rubrik: question.rubric || [],
+        }).catch((error) => console.warn('[ChromaDB Sync] Sinkronisasi kunci esai gagal:', error.message))
+      } else {
+        const { error } = await supabase.from('kunci_jawaban_essay').delete().eq('soal_id', questionId)
+        if (error) throw new Error(`Gagal menghapus kunci esai soal ${index + 1}: ${error.message}`)
+      }
+    }
+
+    if (removedIds.length > 0) {
+      const { error } = await supabase.from('soal').delete().in('id', removedIds)
+      if (error) throw new Error(`Gagal menghapus soal yang belum dijawab: ${error.message}`)
+    }
+  }
+
+  Object.assign(task, update, { questions })
+  saveLocal()
+  return task
+}
+
 /**
  * Simpan jawaban tugas mahasiswa ke Supabase (`jawaban_mahasiswa` & `detail_jawaban`).
  */
@@ -1023,5 +1170,6 @@ export {
   saveScannedSubmission,
   syncClassesFromSupabase,
   updateSubmissionScore,
+  updateTaskInClass,
   updateTaskSettings,
 }

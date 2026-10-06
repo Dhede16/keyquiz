@@ -502,6 +502,22 @@ function openStudentResult(student) {
         <QuizSheetTabs :active-tab="activeSheet" @select="activeSheet = $event" />
 
         <div v-if="activeSheet === 'questions'" class="space-y-4 sm:space-y-5">
+          <div class="flex justify-end">
+            <button
+              type="button"
+              class="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#2864E8] shadow-sm transition hover:bg-blue-50"
+              @click="
+                router.push({
+                  name: 'create-quiz-manual',
+                  params: { id: String(classId) },
+                  query: { taskId: String(taskId) },
+                })
+              "
+            >
+              Edit soal & tenggat
+            </button>
+          </div>
+
           <section
             v-if="questions.length === 0"
             class="rounded-[1.5rem] bg-white p-6 text-sm text-[#777777] shadow-sm sm:rounded-[2rem] sm:p-8"

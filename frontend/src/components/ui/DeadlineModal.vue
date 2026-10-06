@@ -7,6 +7,8 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   showTitle: { type: Boolean, default: false },
   initialTitle: { type: String, default: '' },
+  initialDate: { type: String, default: '' },
+  initialTime: { type: String, default: '23:59' },
 })
 
 const emit = defineEmits(['close', 'save'])
@@ -72,10 +74,11 @@ watch(
     taskTitle.value = props.initialTitle.slice(0, 120)
     const defaultDate = new Date()
     defaultDate.setDate(defaultDate.getDate() + 14)
-    deadlineDate.value = formatDate(defaultDate)
-    visibleMonth.value = new Date(defaultDate.getFullYear(), defaultDate.getMonth(), 1)
-    deadlineTime.value = '23:59'
-    timeDraft.value = '23:59'
+    deadlineDate.value = props.initialDate || formatDate(defaultDate)
+    const selectedDate = parseDate(deadlineDate.value)
+    visibleMonth.value = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+    deadlineTime.value = props.initialTime || '23:59'
+    timeDraft.value = deadlineTime.value
     showDatePicker.value = false
     showTimePicker.value = false
   },
