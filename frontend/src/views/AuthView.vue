@@ -34,12 +34,12 @@ watch(
     <HeroBackdrop />
 
     <header class="relative z-20 mx-auto max-w-[1280px] px-5 pt-4 sm:px-10 sm:pt-6">
-      <BrandLogo />
+      <BrandLogo landing />
     </header>
 
     <div class="mx-auto mt-10 grid max-w-[1280px] items-start gap-10 px-5 sm:mt-12 sm:px-10 lg:mt-8 lg:grid-cols-2 lg:gap-8">
-      <div class="text-white pt-2 sm:pt-4 lg:pt-14">
-        <h1 class="text-[7.2vw] font-bold leading-[1.3] sm:text-5xl lg:whitespace-nowrap lg:text-[clamp(2.5rem,4.2vw,3.75rem)]">
+      <div class="text-white pt-2 sm:pt-4 lg:ml-7 lg:pt-24">
+        <h1 class="text-[7.2vw] font-bold leading-[1.3] sm:text-4xl lg:whitespace-nowrap lg:text-[3.5rem]">
           Permudah Anda<br />Membuat Kuis
         </h1>
 
