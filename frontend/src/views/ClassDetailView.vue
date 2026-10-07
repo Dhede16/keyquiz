@@ -529,7 +529,7 @@ function getStudentSubmission(task) {
               <div
                 class="flex min-w-14 shrink-0 flex-col items-center rounded-lg bg-[#2864E8] px-2 py-1 text-xs font-medium leading-tight text-white shadow-sm sm:min-w-16 sm:py-1.5 sm:text-sm"
               >
-                <span>Nilai</span>
+                <span class="whitespace-nowrap text-[10px] sm:text-xs">Nilai rata-rata</span>
                 <span>{{ student.average }}</span>
               </div>
             </button>
