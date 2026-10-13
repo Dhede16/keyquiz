@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import { classes, updateSubmissionScore } from '@/composables/useClasses.js'
+import { formatErrorMessage } from '@/utils/errorMessage.js'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
 
 const route = useRoute()
@@ -67,20 +68,37 @@ const maxScore = computed(() =>
 
 const isSubmitting = ref(false)
 const isDone = ref(false)
+const gradeError = ref('')
 
 async function submitGrade() {
   if (isSubmitting.value || !submission.value) return
   isSubmitting.value = true
-  const bounded = Math.min(Math.max(totalInput.value, 0), maxScore.value)
-  await updateSubmissionScore(
-    classId.value,
-    taskId.value,
-    studentEmail.value,
-    bounded,
-    scoreDrafts.value,
-  )
-  isSubmitting.value = false
-  isDone.value = true
+  gradeError.value = ''
+  try {
+    const questionScores = Object.fromEntries(
+      Object.entries(scoreDrafts.value).map(([questionId, value]) => [
+        questionId,
+        Number(value || 0),
+      ]),
+    )
+    if (Object.values(questionScores).some((value) => !Number.isFinite(value))) {
+      throw new Error('Periksa kembali nilai setiap soal.')
+    }
+
+    const bounded = Math.min(Math.max(totalInput.value, 0), maxScore.value)
+    await updateSubmissionScore(
+      classId.value,
+      taskId.value,
+      studentEmail.value,
+      bounded,
+      questionScores,
+    )
+    isDone.value = true
+  } catch (error) {
+    gradeError.value = formatErrorMessage(error) || 'Nilai gagal disimpan. Silakan coba lagi.'
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 function getStudentAnswer(question) {
@@ -467,6 +485,9 @@ function isAnswerCorrect(question) {
                 {{ isSubmitting ? 'Mengirim...' : 'Kirim Nilai' }}
               </button>
             </div>
+            <p v-if="gradeError" role="alert" class="mt-3 text-sm font-semibold text-red-600">
+              {{ gradeError }}
+            </p>
           </section>
 
           <!-- State sudah dinilai -->

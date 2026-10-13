@@ -47,29 +47,42 @@ function nameFromEmail(email) {
   return base ? base.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Pengguna'
 }
 
+async function loadUserData(authUser) {
+  const [{ data: profile, error: profileError }, { data: privateProfile, error: privateError }] =
+    await Promise.all([
+      supabase
+        .from('profiles')
+        .select('name, role, avatar_url')
+        .eq('id', authUser.id)
+        .maybeSingle(),
+      supabase
+        .from('profile_private')
+        .select('birth_date, phone, gender')
+        .eq('user_id', authUser.id)
+        .maybeSingle(),
+    ])
+
+  if (profileError) throw profileError
+  if (privateError) throw privateError
+
+  return {
+    id: authUser.id,
+    email: authUser.email,
+    name: profile?.name || authUser.user_metadata?.name || nameFromEmail(authUser.email || ''),
+    role: profile?.role || 'student',
+    avatarUrl: profile?.avatar_url || '',
+    birthDate: privateProfile?.birth_date || '',
+    phone: privateProfile?.phone || '',
+    gender: privateProfile?.gender || '',
+  }
+}
+
 // Inisialisasi session dari Supabase Auth saat aplikasi dimulai
 async function initAuthSession() {
   try {
     const { data: { session } } = await supabase.auth.getSession()
     if (session?.user) {
-      // Ambil detail profile dari tabel profiles
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('name, role, avatar_url, birth_date, phone, gender')
-        .eq('id', session.user.id)
-        .single()
-
-      const userData = {
-        id: session.user.id,
-        email: session.user.email,
-        name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
-        role: profile?.role || session.user.user_metadata?.role || 'student',
-        avatarUrl: profile?.avatar_url || '',
-        birthDate: profile?.birth_date || '',
-        phone: profile?.phone || '',
-        gender: profile?.gender || '',
-      }
-      saveLocalUser(userData)
+      saveLocalUser(await loadUserData(session.user))
     }
   } catch (err) {
     console.warn('[Supabase Auth] Sesi lokal tetap digunakan:', err.message)
@@ -79,23 +92,11 @@ async function initAuthSession() {
 // Pantau perubahan status autentikasi di Supabase
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('name, role, avatar_url, birth_date, phone, gender')
-      .eq('id', session.user.id)
-      .single()
-
-    const userData = {
-      id: session.user.id,
-      email: session.user.email,
-      name: profile?.name || session.user.user_metadata?.name || nameFromEmail(session.user.email),
-      role: profile?.role || session.user.user_metadata?.role || 'student',
-      avatarUrl: profile?.avatar_url || '',
-      birthDate: profile?.birth_date || '',
-      phone: profile?.phone || '',
-      gender: profile?.gender || '',
+    try {
+      saveLocalUser(await loadUserData(session.user))
+    } catch (err) {
+      console.warn('[Supabase Auth] Gagal memuat profil:', err.message)
     }
-    saveLocalUser(userData)
   } else if (event === 'SIGNED_OUT') {
     saveLocalUser(null)
   }
@@ -110,7 +111,7 @@ export function useAuth() {
   /**
    * Login pengguna via Supabase Auth.
    */
-  async function login({ email, password, role }) {
+  async function login({ email, password }) {
     authLoading.value = true
     try {
       if (!email?.trim() || !password) {
@@ -130,22 +131,7 @@ export function useAuth() {
       }
 
       if (data?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('name, role, avatar_url, birth_date, phone, gender')
-          .eq('id', data.user.id)
-          .single()
-
-        const userData = {
-          id: data.user.id,
-          email: data.user.email,
-          name: profile?.name || data.user.user_metadata?.name || nameFromEmail(email),
-          role: profile?.role || role || data.user.user_metadata?.role || 'student',
-          avatarUrl: profile?.avatar_url || '',
-          birthDate: profile?.birth_date || '',
-          phone: profile?.phone || '',
-          gender: profile?.gender || '',
-        }
+        const userData = await loadUserData(data.user)
         saveLocalUser(userData)
         return userData
       }
@@ -210,49 +196,23 @@ export function useAuth() {
       avatarUrl = publicUrlData.publicUrl
     }
 
-    const profileFields = {
-      name: name.trim(),
-      avatar_url: avatarUrl || null,
-      birth_date: birthDate || null,
-      phone: phone.trim() || null,
-      gender: gender || null,
+    const profileData = {
+      profile_name: name.trim(),
+      profile_avatar_url: avatarUrl || null,
+      private_birth_date: birthDate || null,
+      private_phone: phone.trim() || null,
+      private_gender: gender || null,
     }
-    const selectedProfileFields = 'name, avatar_url, birth_date, phone, gender'
-
-    const { data: existingProfile, error: updateError } = await supabase
-      .from('profiles')
-      .update(profileFields)
-      .eq('id', authUser.id)
-      .select(selectedProfileFields)
-      .maybeSingle()
-
+    const { error: updateError } = await supabase.rpc('update_own_profile', profileData)
     if (updateError) throw updateError
-
-    let data = existingProfile
-    if (!data) {
-      if (!authUser.email) throw new Error('Email akun tidak tersedia untuk membuat profil.')
-      const { data: insertedProfile, error: insertError } = await supabase
-        .from('profiles')
-        .insert({
-          id: authUser.id,
-          email: authUser.email,
-          role: user.value.role || authUser.user_metadata?.role || 'student',
-          ...profileFields,
-        })
-        .select(selectedProfileFields)
-        .single()
-
-      if (insertError) throw insertError
-      data = insertedProfile
-    }
 
     const userData = {
       ...user.value,
-      name: data.name,
-      avatarUrl: data.avatar_url || '',
-      birthDate: data.birth_date || '',
-      phone: data.phone || '',
-      gender: data.gender || '',
+      name: profileData.profile_name,
+      avatarUrl: profileData.profile_avatar_url || '',
+      birthDate: profileData.private_birth_date || '',
+      phone: profileData.private_phone || '',
+      gender: profileData.private_gender || '',
     }
     saveLocalUser(userData)
     return userData

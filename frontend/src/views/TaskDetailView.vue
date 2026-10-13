@@ -11,7 +11,6 @@ import {
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import QuizSheetTabs from '@/components/ui/QuizSheetTabs.vue'
 import taskBannerImg from '@/assets/images/BennerMengerjakan.png'
-import { gradeEssay, saveEssayKey } from '@/services/api.js'
 import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
 
 
@@ -125,46 +124,9 @@ async function submitAnswers() {
     for (let index = 0; index < questions.value.length; index++) {
       const question = questions.value[index]
       const value = answers.value[index].trim()
-      let questionScore = 0
-      let aiEvaluation = null
-
-      if (question.type === 'multiple_choice') {
-        if (question.answerKey?.trim() && isAnswerCorrect(question, value)) {
-          questionScore = Number(question.points) || 0
-        }
-      } else {
-        if (!question.answerKey?.trim()) {
-          throw new Error(`Kunci jawaban untuk soal "${question.title}" belum tersedia.`)
-        }
-
-        const soalIdStr = String(question.id)
-        await saveEssayKey({
-          idKunci: `kunci-${question.id}`,
-          idSoal: soalIdStr,
-          soal: question.title || '',
-          kunciTeks: question.answerKey,
-          rubrik: question.rubric || [],
-        })
-
-        const res = await gradeEssay({
-          idDetail: `detail-${question.id}-${Date.now()}`,
-          idSoal: soalIdStr,
-          jawabanTeks: value,
-        })
-
-        if (typeof res?.nilai_ai !== 'number') {
-          throw new Error(`Penilaian AI untuk soal "${question.title}" tidak menghasilkan nilai.`)
-        }
-
-        questionScore = Math.round((res.nilai_ai / 100) * (Number(question.points) || 10))
-        aiEvaluation = res
-      }
-
       submittedAnswers.push({
         questionId: question.id,
         value,
-        score: questionScore,
-        aiEvaluation,
       })
     }
 

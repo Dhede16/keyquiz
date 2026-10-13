@@ -116,6 +116,18 @@ async function handleJoinClass(code) {
     return
   }
 
+  if (result.status === 'forbidden') {
+    joinMessage.value = 'Hanya akun mahasiswa yang dapat bergabung ke kelas.'
+    joinMessageIsError.value = true
+    return
+  }
+
+  if (result.status === 'error') {
+    joinMessage.value = 'Kelas belum dapat diakses. Coba lagi beberapa saat.'
+    joinMessageIsError.value = true
+    return
+  }
+
   if (result.status === 'already-joined') {
     joinMessage.value = 'Kamu sudah tergabung di kelas ini.'
     joinMessageIsError.value = true

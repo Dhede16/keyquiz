@@ -19,9 +19,9 @@ def get_supabase_client() -> Optional[Client]:
 
 
 def get_supabase_admin() -> Optional[Client]:
-    """Mengembalikan Admin Supabase Client dengan Service Role Key untuk bypass RLS pada backend sync."""
+    """Mengembalikan client admin Supabase yang memerlukan service-role key."""
     global _admin_client
-    key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY
+    key = SUPABASE_SERVICE_ROLE_KEY
     if not _admin_client and SUPABASE_URL and key:
         try:
             _admin_client = create_client(SUPABASE_URL, key)

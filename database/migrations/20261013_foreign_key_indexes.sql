@@ -1,0 +1,13 @@
+CREATE INDEX IF NOT EXISTS idx_kelas_teacher_id ON public.kelas (teacher_id);
+CREATE INDEX IF NOT EXISTS idx_anggota_kelas_student_id ON public.anggota_kelas (student_id);
+CREATE INDEX IF NOT EXISTS idx_tugas_kelas_id ON public.tugas (kelas_id);
+CREATE INDEX IF NOT EXISTS idx_soal_tugas_id ON public.soal (tugas_id);
+CREATE INDEX IF NOT EXISTS idx_opsi_jawaban_soal_id ON public.opsi_jawaban (soal_id);
+CREATE INDEX IF NOT EXISTS idx_jawaban_mahasiswa_student_id ON public.jawaban_mahasiswa (student_id);
+CREATE INDEX IF NOT EXISTS idx_detail_jawaban_submission_id ON public.detail_jawaban (submission_id);
+CREATE INDEX IF NOT EXISTS idx_detail_jawaban_soal_id ON public.detail_jawaban (soal_id);
+CREATE INDEX IF NOT EXISTS idx_detail_jawaban_opsi_jawaban_id ON public.detail_jawaban (opsi_jawaban_id);
+CREATE INDEX IF NOT EXISTS idx_scan_archive_folders_created_by ON public.scan_archive_folders (created_by);
+CREATE INDEX IF NOT EXISTS idx_scan_archives_class_id ON public.scan_archives (class_id);
+CREATE INDEX IF NOT EXISTS idx_scan_archives_folder_id_class_id ON public.scan_archives (folder_id, class_id);
+CREATE INDEX IF NOT EXISTS idx_scan_archives_student_id ON public.scan_archives (student_id);

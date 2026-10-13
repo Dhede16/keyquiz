@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { classes as initialClasses } from '@/data/classes.js'
 import { supabase } from '@/services/supabase.js'
-import { saveEssayKey } from '@/services/api.js'
+import { gradeEssay, saveEssayKey } from '@/services/api.js'
 import { canStudentViewTask } from '@/utils/scannedTaskAccess.js'
 import { hasQuizPointsTotalOf100 } from '@/utils/quizPoints.js'
 
@@ -9,12 +9,27 @@ const CLASSES_STORAGE_KEY = 'keyquiz:classes'
 const classes = ref(loadInitialClasses())
 const isSyncing = ref(false)
 
+function withoutStoredAnswerKeys(classItem) {
+  return {
+    ...classItem,
+    tasks: (classItem.tasks || []).map((task) => ({
+      ...task,
+      questions: (task.questions || []).map(({ answerKey, rubric, ...question }) => question),
+    })),
+  }
+}
+
 function loadInitialClasses() {
   try {
     const stored = JSON.parse(localStorage.getItem(CLASSES_STORAGE_KEY))
-    return Array.isArray(stored) && stored.length > 0
-      ? stored.map(({ archiveFolders, ...classItem }) => classItem)
-      : [...initialClasses]
+    if (Array.isArray(stored) && stored.length > 0) {
+      const safeClasses = stored.map(({ archiveFolders, ...classItem }) =>
+        withoutStoredAnswerKeys(classItem),
+      )
+      localStorage.setItem(CLASSES_STORAGE_KEY, JSON.stringify(safeClasses))
+      return safeClasses
+    }
+    return [...initialClasses]
   } catch {
     return [...initialClasses]
   }
@@ -24,7 +39,11 @@ function saveLocal() {
   try {
     localStorage.setItem(
       CLASSES_STORAGE_KEY,
-      JSON.stringify(classes.value.map(({ archiveFolders, ...classItem }) => classItem)),
+      JSON.stringify(
+        classes.value.map(({ archiveFolders, ...classItem }) =>
+          withoutStoredAnswerKeys(classItem),
+        ),
+      ),
     )
   } catch {
     // Local storage fallback
@@ -94,11 +113,13 @@ function getClassesForTeacher(email, teacherId = null, teacherName = null) {
 async function syncClassesFromSupabase(userEmail = null) {
   if (isSyncing.value) return
   isSyncing.value = true
+  let authenticatedUser = null
 
   try {
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError) throw authError
+    authenticatedUser = user
 
-    // 1. Ambil data kelas beserta anggota_kelas, tugas, soal, opsi, kunci, jawaban_mahasiswa, dan detail_jawaban
     const { data: dbClasses, error: classErr } = await supabase
       .from('kelas')
       .select(`
@@ -163,13 +184,7 @@ async function syncClassesFromSupabase(userEmail = null) {
               id,
               option_letter,
               option_text,
-              is_correct,
               order_index
-            ),
-            kunci_jawaban_essay (
-              id,
-              answer_key,
-              rubric
             )
           ),
           jawaban_mahasiswa (
@@ -206,6 +221,28 @@ async function syncClassesFromSupabase(userEmail = null) {
     if (classErr) throw classErr
 
     if (dbClasses && dbClasses.length > 0) {
+      const answerKeysByQuestion = new Map()
+      if (user) {
+        const answerKeyResults = await Promise.all(
+          dbClasses.map((classItem) =>
+            supabase.rpc('get_class_answer_keys', { target_class_id: classItem.id }),
+          ),
+        )
+        for (const { data, error } of answerKeyResults) {
+          if (error) throw error
+          for (const answerKey of data || []) {
+            const savedKey = answerKeysByQuestion.get(answerKey.soal_id) || {
+              answerKey: '',
+              rubric: [],
+            }
+            if (answerKey.is_correct) savedKey.answerKey = answerKey.option_text || ''
+            if (answerKey.answer_key) savedKey.answerKey = answerKey.answer_key
+            if (Array.isArray(answerKey.rubric)) savedKey.rubric = answerKey.rubric
+            answerKeysByQuestion.set(answerKey.soal_id, savedKey)
+          }
+        }
+      }
+
       const emailToCheck = userEmail || user?.email
 
       // Jika user terautentikasi sebagai siswa, sinkronkan keanggotaan kelas dari tabel anggota_kelas
@@ -240,8 +277,7 @@ async function syncClassesFromSupabase(userEmail = null) {
                 .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
                 .map((o) => o.option_text)
 
-              const correctOpt = (s.opsi_jawaban || []).find((o) => o.is_correct)
-              const essayKey = s.kunci_jawaban_essay?.[0] || s.kunci_jawaban_essay
+              const answerKey = answerKeysByQuestion.get(s.id)
 
               return {
                 id: s.id,
@@ -249,8 +285,8 @@ async function syncClassesFromSupabase(userEmail = null) {
                 type: s.type,
                 points: Number(s.points) || 10,
                 options,
-                answerKey: correctOpt ? correctOpt.option_text : essayKey?.answer_key || '',
-                rubric: essayKey?.rubric || [],
+                answerKey: answerKey?.answerKey || '',
+                rubric: answerKey?.rubric || [],
               }
             })
 
@@ -357,9 +393,16 @@ async function syncClassesFromSupabase(userEmail = null) {
 
       classes.value = formattedClasses
       saveLocal()
+    } else if (user) {
+      classes.value = []
+      saveLocal()
     }
   } catch (err) {
-    console.warn('[Supabase DB Sync] Mempertahankan state lokal:', err.message)
+    if (authenticatedUser) {
+      classes.value = []
+      saveLocal()
+    }
+    console.warn('[Supabase DB Sync] Sinkronisasi database gagal:', err.message)
   } finally {
     isSyncing.value = false
   }
@@ -697,6 +740,25 @@ async function updateTaskInClass(classId, taskId, update) {
  * Simpan jawaban tugas mahasiswa ke Supabase (`jawaban_mahasiswa` & `detail_jawaban`).
  */
 async function saveTaskSubmission(classId, taskId, submission) {
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError) throw authError
+
+  if (user) {
+    if (user.email?.trim().toLowerCase() !== submission.email?.trim().toLowerCase()) {
+      throw new Error('Akun login berubah. Muat ulang halaman sebelum mengirim jawaban.')
+    }
+
+    const { data: submissionId, error } = await supabase.rpc('submit_task_answers', {
+      target_task_id: taskId,
+      submitted_answers: submission.answers.map((answer) => ({
+        question_id: answer.questionId,
+        answer_text: answer.value || '',
+      })),
+    })
+    if (error) throw new Error(`Gagal menyimpan jawaban: ${error.message}`)
+    submission.id = submissionId
+  }
+
   const updatedTask = updateTask(classId, taskId, (task) => {
     task.submissions ||= []
     const email = submission.email.trim().toLowerCase()
@@ -708,61 +770,29 @@ async function saveTaskSubmission(classId, taskId, submission) {
     else task.submissions[existingIndex] = submission
   })
 
-  // Sinkronisasi ke Supabase
-  try {
-    const { data: { user } } = await supabase.auth.getUser()
-    const studentId = user?.id
+  if (!updatedTask) return null
 
-    if (studentId) {
-      const submissionId = submission.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sub-${Date.now()}`)
-      
-      const { data: subData, error: subErr } = await supabase
-        .from('jawaban_mahasiswa')
-        .upsert(
-          {
-            id: submissionId,
-            tugas_id: taskId,
-            student_id: studentId,
-            status: submission.graded ? 'graded' : 'submitted',
-            total_score: submission.score ?? null,
-            submitted_at: new Date().toISOString(),
-          },
-          { onConflict: 'tugas_id,student_id' },
-        )
-        .select()
-        .single()
+  const classItem = classes.value.find((item) => String(item.id) === String(classId))
+  const task = classItem?.tasks?.find((item) => String(item.id) === String(taskId))
+  const gradingErrors = []
+  if (user) {
+    for (const answer of submission.answers || []) {
+      const question = task?.questions?.find((item) => item.id === answer.questionId)
+      if (!['essay', 'short_answer'].includes(question?.type)) continue
 
-      if (!subErr && subData && Array.isArray(submission.answers)) {
-        for (const ans of submission.answers) {
-          const detailRow = {
-            submission_id: subData.id,
-            soal_id: ans.questionId,
-            jawaban_teks: ans.value || '',
-            nilai_final: ans.aiEvaluation ? null : (ans.score ?? null),
-            teacher_feedback: ans.feedback || null,
-          }
-
-          if (ans.aiEvaluation) {
-            if (typeof ans.aiEvaluation.similarity === 'number') {
-              detailRow.similarity_score = ans.aiEvaluation.similarity
-            }
-            if (typeof ans.aiEvaluation.nilai_ai === 'number') {
-              detailRow.nilai_ai = ans.aiEvaluation.nilai_ai
-            }
-            if (Array.isArray(ans.aiEvaluation.rubric_results)) {
-              detailRow.rubric_evaluation = {
-                rubric_results: ans.aiEvaluation.rubric_results,
-                alasan_ai: ans.aiEvaluation.alasan_ai || '',
-              }
-            }
-          }
-
-          await supabase.from('detail_jawaban').insert(detailRow)
-        }
+      try {
+        const result = await gradeEssay({ submissionId: submission.id, idSoal: answer.questionId })
+        answer.aiEvaluation = result
+        answer.score = Math.round((result.nilai_ai / 100) * (Number(question.points) || 10))
+      } catch (err) {
+        gradingErrors.push(err.message)
       }
     }
-  } catch (err) {
-    console.warn('[Supabase DB] Error simpan jawaban:', err.message)
+  }
+
+  saveLocal()
+  if (gradingErrors.length > 0) {
+    throw new Error(`Jawaban sudah tersimpan, tetapi penilaian AI gagal: ${gradingErrors.join('; ')}`)
   }
 
   return updatedTask
@@ -1139,6 +1169,42 @@ function updateTaskSettings(classId, taskId, settings) {
 }
 
 async function updateSubmissionScore(classId, taskId, email, score, questionScores = null) {
+  const classItem = classes.value.find((item) => String(item.id) === String(classId))
+  if (!classItem?.tasks?.some((task) => String(task.id) === String(taskId))) {
+    throw new Error('Kelas atau tugas yang akan dinilai tidak ditemukan.')
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError) throw authError
+  if (user) {
+    if (classItem.teacherId !== user.id) {
+      throw new Error('Hanya dosen pengampu kelas yang dapat mengubah nilai.')
+    }
+
+    const { data: profiles, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .single()
+    if (profileError) throw new Error(`Profil mahasiswa tidak ditemukan: ${profileError.message}`)
+
+    const { data: jm, error: submissionError } = await supabase
+      .from('jawaban_mahasiswa')
+      .select('id')
+      .eq('tugas_id', taskId)
+      .eq('student_id', profiles.id)
+      .maybeSingle()
+    if (submissionError) throw new Error(`Gagal memuat pengumpulan mahasiswa: ${submissionError.message}`)
+    if (!jm?.id) throw new Error('Pengumpulan mahasiswa tidak ditemukan.')
+
+    const { error: gradingError } = await supabase.rpc('grade_submission', {
+      target_submission_id: jm.id,
+      final_total: Number(score),
+      question_scores: questionScores,
+    })
+    if (gradingError) throw new Error(`Gagal menyimpan nilai akhir: ${gradingError.message}`)
+  }
+
   const updated = updateTask(classId, taskId, (task) => {
     const submission = task.submissions?.find(
       (item) => item.email.trim().toLowerCase() === email.trim().toLowerCase(),
@@ -1149,90 +1215,35 @@ async function updateSubmissionScore(classId, taskId, email, score, questionScor
     submission.graded = true
 
     if (questionScores && Array.isArray(submission.answers)) {
-      submission.answers.forEach((ans) => {
-        if (questionScores[ans.questionId] !== undefined) {
-          ans.score = Number(questionScores[ans.questionId])
+      submission.answers.forEach((answer) => {
+        if (questionScores[answer.questionId] !== undefined) {
+          answer.score = Number(questionScores[answer.questionId])
         }
       })
     }
   })
-
-  // Sinkronisasi update nilai ke tabel `jawaban_mahasiswa` & `detail_jawaban` di Supabase
-  try {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('email', email.trim().toLowerCase())
-      .single()
-
-    if (profiles?.id) {
-      const { data: jm } = await supabase
-        .from('jawaban_mahasiswa')
-        .update({
-          total_score: score,
-          status: 'graded',
-          graded_at: new Date().toISOString(),
-        })
-        .eq('tugas_id', taskId)
-        .eq('student_id', profiles.id)
-        .select('id')
-        .maybeSingle()
-
-      if (jm?.id && questionScores) {
-        for (const [soalId, qScore] of Object.entries(questionScores)) {
-          await supabase
-            .from('detail_jawaban')
-            .update({
-              nilai_final: Number(qScore),
-            })
-            .eq('submission_id', jm.id)
-            .eq('soal_id', soalId)
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Supabase DB] Gagal update nilai jawaban_mahasiswa:', err.message)
-  }
-
   return updated
 }
 
 async function joinClassByCode(email, code) {
   const cleanCode = (code || '').trim().toUpperCase()
   if (!cleanCode) return { status: 'not-found' }
-  
-  // 1. Cari di database Supabase terlebih dahulu
-  try {
-    const { data: dbClass, error: findErr } = await supabase
-      .from('kelas')
-      .select(`
-        id,
-        teacher_id,
-        title,
-        major,
-        description,
-        code,
-        created_at,
-        profiles:teacher_id (
-          id,
-          email,
-          name
-        )
-      `)
-      .eq('code', cleanCode)
-      .maybeSingle()
 
-    if (dbClass) {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        await supabase.from('anggota_kelas').upsert(
-          {
-            kelas_id: dbClass.id,
-            student_id: user.id,
-          },
-          { onConflict: 'kelas_id,student_id' },
-        )
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError) throw authError
+
+    if (user) {
+      const { data, error } = await supabase.rpc('join_class_by_code', {
+        class_code: cleanCode,
+      })
+      if (error) {
+        if (error.code === 'P0002') return { status: 'not-found' }
+        if (error.code === '42501') return { status: 'forbidden' }
+        throw error
       }
+      const dbClass = data?.[0]
+      if (!dbClass) return { status: 'not-found' }
 
       // Pastikan kelas ada di state lokal
       let existing = classes.value.find((c) => String(c.id) === String(dbClass.id) || c.code?.toUpperCase() === cleanCode)
@@ -1240,8 +1251,8 @@ async function joinClassByCode(email, code) {
         existing = {
           id: dbClass.id,
           teacherId: dbClass.teacher_id,
-          teacherEmail: dbClass.profiles?.email || '',
-          lecturer: dbClass.profiles?.name || 'Dosen',
+          teacherEmail: dbClass.teacher_email || '',
+          lecturer: dbClass.teacher_name || 'Dosen',
           title: dbClass.title,
           major: dbClass.major || '',
           description: dbClass.description || '',
@@ -1274,10 +1285,11 @@ async function joinClassByCode(email, code) {
       return { status: 'joined', classItem: existing }
     }
   } catch (err) {
-    console.warn('[Supabase DB] Join query gagal, cek lokal:', err.message)
+    console.warn('[Supabase DB] Join kelas gagal:', err.message)
+    return { status: 'error' }
   }
 
-  // 2. Cek di state lokal jika database tidak menemukan
+  // Mode lokal untuk akun demo tanpa sesi Supabase.
   const classItem = classes.value.find((item) => item.code?.toUpperCase() === cleanCode)
   if (!classItem) return { status: 'not-found' }
 

@@ -42,8 +42,9 @@ cd keyquiz
 Salin file `.env.example` di root project menjadi `.env`:
 ```bash
 cp .env.example .env
+cp frontend/.env.example frontend/.env.local
 ```
-Buka file `.env` dan pastikan konfigurasi telah terisi:
+Buka kedua file dan isi placeholder konfigurasi dengan kredensial proyek Anda. Frontend hanya memakai URL Supabase, anon key, dan URL API; **jangan pernah memasukkan service-role key ke variabel `VITE_*`**.
 ```env
 # Server
 PORT=8000
@@ -76,17 +77,23 @@ pip install -r backend/requirements.txt
 
 ---
 
-### 4. Inisialisasi Database Supabase (Otomatis)
-Jalankan script Python berikut untuk membuat seluruh tabel (`profiles`, `kelas`, `tugas`, `soal`, `detail_jawaban`, dll.), trigger registrasi profil otomatis, dan aturan Row Level Security (RLS) di Supabase:
+### 4. Inisialisasi Database Supabase
+Cadangkan database terlebih dahulu, terutama jika proyek Supabase sudah berisi data. Gunakan direct connection atau session pooler Supabase dengan SSL (hindari transaction pooler untuk migrasi), isi `DATABASE_URL` di `.env`, lalu jalankan:
 ```bash
 python database/init_db.py
 ```
-> **Output Sukses:** `[SUKSES] Semua tabel, trigger, dan RLS policy berhasil dibuat di Supabase!`
+Script menerapkan `database/schema.sql` lalu semua file `.sql` di `database/migrations/` dalam urutan nama, serta mencatat versi yang selesai di `public.keyquiz_schema_migrations` agar migrasi yang sudah tercatat tidak dijalankan ulang. Jika Anda menjalankan SQL secara manual di Supabase SQL Editor, script mungkin menjalankan ulang migrasi yang belum tercatat; migrasi dirancang aman untuk diulang. Error menghentikan proses dengan status gagal. Perubahan profil memindahkan tanggal lahir, telepon, dan gender ke tabel `profile_private`, menyalin data yang ada, lalu menghapus kolom lama. Jika nilai gender lama tidak valid, migrasi berhenti tanpa menghapus data; periksa dengan:
+```sql
+SELECT id, gender
+FROM public.profiles
+WHERE gender IS NOT NULL
+  AND gender NOT IN ('laki-laki', 'perempuan');
+```
+Normalisasi nilai yang ditampilkan sebelum mencoba ulang. Jika tidak memakai koneksi PostgreSQL dari script, jalankan `schema.sql` dan seluruh file migrasi secara berurutan di SQL Editor Supabase.
 
-> **Untuk proyek Supabase yang sudah ada:** setelah memperbarui skema, jalankan `database/migrations/20261005_remove_profile_plaintext_password.sql` di SQL Editor untuk menghapus salinan kata sandi lama dari profil dan metadata autentikasi.
-> Untuk memastikan kolom data diri tersedia di tabel `profiles`, jalankan `database/migrations/20261006_profile_columns.sql` di Supabase SQL Editor.
-> Untuk mengaktifkan folder arsip scan, jalankan `database/migrations/20261006_scanned_sheet_archives.sql` di Supabase SQL Editor. Migrasi ini membuat tabel arsip, bucket Storage privat, dan policy akses dosen, lalu meminta PostgREST memuat ulang schema cache.
-> Untuk mengaktifkan foto profil dosen dan mahasiswa, jalankan `database/migrations/20261006_profile_storage.sql` di Supabase SQL Editor. Migrasi ini membuat bucket publik `profile` (maksimal 2 MB, JPEG) dan membatasi upload, penggantian, serta penghapusan ke folder UUID pengguna yang sedang login.
+Untuk database yang sudah berjalan, pastikan backup berhasil dan jalankan saat aplikasi tidak sedang mengubah profil. Jangan menghapus atau mereset tabel/Auth/Storage. Script ini tidak dijalankan otomatis saat build atau deploy.
+
+Migrasi `20261014_access_control_hardening.sql` membatasi pembacaan kelas dan anggota, mewajibkan join kelas melalui kode yang divalidasi database, membatasi akses kunci jawaban, serta memindahkan pengiriman jawaban dan penyimpanan nilai ke fungsi database yang memvalidasi hak akses. Penilaian dosen disimpan dalam satu transaksi; pastikan migrasi ini berhasil diterapkan sebelum deploy frontend/backend yang menggunakannya. Backend penilaian esai juga memerlukan `SUPABASE_SERVICE_ROLE_KEY` yang hanya disimpan di environment backend.
 
 ---
 
@@ -120,6 +127,22 @@ npm run dev
 
 ---
 
+## ☁️ Deployment (Vercel + Render)
+
+1. Buat Web Service dari `render.yaml` di Render. Blueprint memakai paket Standard karena model embedding berbasis PyTorch memerlukan memori yang memadai, serta disk persisten untuk menyimpan embedding dan cache model melewati deploy/restart.
+2. Isi environment variables backend di Render: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, dan `CORS_ORIGINS`. Atur `CORS_ORIGINS` ke origin frontend yang tepat, misalnya `https://<nama-proyek>.vercel.app` (tanpa trailing slash). Jangan gunakan `*`.
+3. Buat proyek di Vercel dengan **Root Directory** `frontend`. File `frontend/vercel.json` mengatur output `dist` dan fallback routing Vue.
+4. Isi environment variables Vercel:
+   - `VITE_SUPABASE_URL` — URL proyek Supabase.
+   - `VITE_SUPABASE_ANON_KEY` — anon/publishable key Supabase.
+   - `VITE_API_BASE_URL` — URL backend Render yang diakhiri `/api`, misalnya `https://<nama-service>.onrender.com/api`.
+5. Pastikan origin production Vercel tercantum di `CORS_ORIGINS` Render. Jika memakai domain kustom atau preview deployment, masukkan origin yang memang diizinkan.
+6. Terapkan migrasi database terlebih dahulu, deploy backend dan frontend, lalu cek backend `/` dan coba login, akses kelas, buat tugas, serta penilaian esai.
+
+`DATABASE_URL` hanya diperlukan untuk menjalankan migrasi dari mesin operator; jangan masukkan ke Vercel atau Render. `SUPABASE_SERVICE_ROLE_KEY` hanya berada di backend Render dan tidak boleh dibagikan ke frontend.
+
+---
+
 ## 🎯 Panduan Skenario Pengujian Fitur Utama
 
 Setelah backend dan frontend berjalan, Anda dapat menguji fitur-fitur unggulan berikut:
@@ -135,8 +158,8 @@ Setelah backend dan frontend berjalan, Anda dapat menguji fitur-fitur unggulan b
    - Periksa hasil ekstraksi teks soal dan keterangan setiap opsi. AI menyarankan kunci jawaban dan bobot tiap soal, lalu dosen dapat mengubah keduanya serta menyesuaikan nilai jawaban.
    - Pastikan total bobot semua soal tepat 100 poin sebelum memilih kelas dan mahasiswa untuk mengirim hasil.
    - Pilih kelas dan satu mahasiswa, lalu kirim hasil. Hasil scan, jawaban, dan nilai tersimpan sebagai tugas di kelas tersebut dan dapat dilihat mahasiswa pada detail tugas.
-   - Jalankan `database/migrations/20261004_scanned_results_student_privacy.sql` di Supabase SQL Editor. RLS membatasi tugas scan, pertanyaan, dan opsi kepada dosen kelas serta mahasiswa tujuan; mahasiswa lain tidak bisa membaca data tersebut melalui API atau URL detail.
-   - Jalankan juga `database/migrations/20261006_scanned_sheet_archives.sql` di Supabase SQL Editor untuk menyimpan foto asli dan koreksi ke folder arsip kelas.
+   - Pastikan migrasi `20261004_scanned_results_student_privacy.sql` sudah diterapkan; RLS membatasi tugas scan, pertanyaan, dan opsi kepada dosen kelas serta mahasiswa tujuan.
+   - Pastikan migrasi `20261006_scanned_sheet_archives.sql` sudah diterapkan agar foto asli dan koreksi tersimpan di arsip kelas. `database/init_db.py` menjalankan kedua migrasi tersebut secara otomatis.
 
 3. **Penilaian Esai Semantik (Hybrid Grading Engine)**:
    - Mahasiswa mengumpulkan jawaban esai pada halaman detail tugas.
@@ -151,15 +174,17 @@ Setelah backend dan frontend berjalan, Anda dapat menguji fitur-fitur unggulan b
 ```text
 keyquiz/
 ├── .env.example              # Template konfigurasi environment
-├── .env                      # File konfigurasi aktif (credentials)
+├── render.yaml               # Blueprint backend Render + disk persisten
 ├── README.md                 # Dokumentasi panduan lengkap proyek
 ├── AGENTS.md                 # Panduan arsitektur & aturan pengembangan
 │
 ├── database/                 # Skema & Inisialisasi Database
-│   ├── schema.sql            # DDL SQL Supabase (Tables, Triggers, RLS)
-│   └── init_db.py            # Script inisialisasi tabel otomatis
+│   ├── schema.sql            # Baseline Supabase (tabel, trigger, RLS)
+│   ├── init_db.py            # Runner schema + migrasi berurutan
+│   └── migrations/           # Perubahan SQL forward-only
 │
 ├── backend/                  # Layanan Backend FastAPI
+│   ├── .python-version       # Versi Python deployment
 │   ├── main.py               # Launcher utama backend server
 │   ├── requirements.txt      # Daftar dependensi Python
 │   ├── docs/                 # Laporan & proposal proyek ICONFEST 2026
@@ -172,6 +197,8 @@ keyquiz/
 │
 └── frontend/                 # Antarmuka Pengguna Vue.js 3
     ├── package.json          # Dependensi frontend & scripts
+    ├── vercel.json           # Build dan fallback routing SPA
+    ├── .env.example          # Template konfigurasi frontend
     ├── vite.config.js        # Konfigurasi Vite & Tailwind CSS
     └── src/
         ├── services/api.js   # HTTP Client ke backend FastAPI

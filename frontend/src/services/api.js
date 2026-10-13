@@ -2,8 +2,23 @@
  * KeyQuiz API Client Service
  * Menghubungkan antarmuka frontend Vue ke backend FastAPI.
  */
+import { supabase } from '@/services/supabase.js'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api'
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? 'http://127.0.0.1:8000/api' : '')
+).replace(/\/+$/, '')
+
+if (!API_BASE_URL) {
+  throw new Error('VITE_API_BASE_URL must be configured for production.')
+}
+
+async function getAuthHeaders() {
+  const { data: { session }, error } = await supabase.auth.getSession()
+  if (error) throw error
+  if (!session?.access_token) throw new Error('Login diperlukan untuk operasi ini.')
+  return { Authorization: `Bearer ${session.access_token}` }
+}
 
 /**
  * Panggil AI untuk membuat soal pilihan ganda & esai secara otomatis.
@@ -62,7 +77,7 @@ export async function scanAnswerSheet({ file, jenis = 'pilihan_ganda', kunci = n
 export async function saveEssayKey({ idKunci, idSoal, soal, kunciTeks, rubrik = [] }) {
   const response = await fetch(`${API_BASE_URL}/essay/kunci`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({
       id_kunci: String(idKunci),
       id_soal: String(idSoal),
@@ -83,14 +98,13 @@ export async function saveEssayKey({ idKunci, idSoal, soal, kunciTeks, rubrik = 
 /**
  * Nilai jawaban esai mahasiswa secara otomatis (Semantic Similarity + LLM Rubrik).
  */
-export async function gradeEssay({ idDetail, idSoal, jawabanTeks }) {
+export async function gradeEssay({ submissionId, idSoal }) {
   const response = await fetch(`${API_BASE_URL}/essay/nilai`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({
-      id_detail: String(idDetail),
+      submission_id: String(submissionId),
       id_soal: String(idSoal),
-      jawaban_teks: jawabanTeks,
     }),
   })
 
