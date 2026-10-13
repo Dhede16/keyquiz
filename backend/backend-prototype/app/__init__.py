@@ -1,1 +1,0 @@
-"""KeyQuiz Application Package."""

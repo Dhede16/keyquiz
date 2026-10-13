@@ -59,8 +59,8 @@ DATABASE_URL=postgresql://postgres:your-password@db.your-project.supabase.co:543
 
 # Groq AI
 GROQ_API_KEY=gsk_your_groq_api_key_here
-NAMA_MODEL_VISION=llama-3.2-11b-vision-preview
-NAMA_MODEL_LLM=llama-3.3-70b-versatile
+NAMA_MODEL_VISION=qwen/qwen3.8-27b
+NAMA_MODEL_LLM=qwen/qwen3.8-27b
 NAMA_MODEL_EMBEDDING=all-MiniLM-L6-v2
 
 # ChromaDB

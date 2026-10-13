@@ -31,8 +31,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # AI & LLM Config (Groq / OpenAI)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-NAMA_MODEL_VISION = os.getenv("NAMA_MODEL_VISION", "llama-3.2-11b-vision-preview")
-NAMA_MODEL_LLM = os.getenv("NAMA_MODEL_LLM", "llama-3.3-70b-versatile")
+NAMA_MODEL_VISION = os.getenv("NAMA_MODEL_VISION", "qwen/qwen3.8-27b")
+NAMA_MODEL_LLM = os.getenv("NAMA_MODEL_LLM", "qwen/qwen3.8-27b")
 NAMA_MODEL_EMBEDDING = os.getenv("NAMA_MODEL_EMBEDDING", "all-MiniLM-L6-v2")
 
 # ChromaDB Storage

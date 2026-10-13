@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-python-multipart
-chromadb
-sentence-transformers
-groq
-openai
-pillow
-python-dotenv

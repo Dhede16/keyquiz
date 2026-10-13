@@ -1,4 +1,4 @@
-"""Service Pembuatan Soal & Kuis Otomatis Berbasis AI (Qwen/Llama LLM)."""
+"""Service Pembuatan Soal & Kuis Otomatis Berbasis AI (Qwen LLM)."""
 import json
 from typing import Literal, TypedDict
 
