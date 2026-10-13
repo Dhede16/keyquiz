@@ -1,22 +1,39 @@
 {
-  "version": 2,
-  "outputDirectory": "frontend/dist",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "keyquiz-api": {
+      "root": "backend",
+      "framework": "fastapi"
+    },
+    "frontend": {
+      "root": "frontend",
+      "framework": "vite"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": {
+        "service": "keyquiz-api"
+      }
     },
     {
       "source": "/docs",
-      "destination": "/api/index.py"
+      "destination": {
+        "service": "keyquiz-api"
+      }
     },
     {
       "source": "/openapi.json",
-      "destination": "/api/index.py"
+      "destination": {
+        "service": "keyquiz-api"
+      }
     },
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": {
+        "service": "frontend"
+      }
     }
   ]
 }
