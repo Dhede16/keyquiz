@@ -25,6 +25,7 @@ app.include_router(api_router)
 
 
 @app.get("/", tags=["Health Check"])
+@app.get("/api", tags=["Health Check"])
 def health_check():
     return {
         "status": "online",
